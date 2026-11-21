@@ -1,0 +1,188 @@
+---
+title: 最长递增子序列，O(n log n)
+description: 求整数列表里最长严格递增子序列的长度，用“每个长度的最小结尾”数组加二分查找做到 O(n log n)。
+sidebar:
+  label: 55. 最长递增子序列
+  order: 55
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Grid, Stepper, Step } from '~/components/viz';
+
+export const nums = [10, 9, 2, 5, 3, 7, 101, 18];
+export const frames = [
+  {
+    at: 0, tails: [10], hit: 0, probes: [],
+    caption: '读 10。`tails` 为空，`p = 0` 等于它的长度，追加。`tails = [10]`。',
+  },
+  {
+    at: 1, tails: [9], hit: 0, probes: [0],
+    caption: '读 9。`tails[0] = 10` ≥ 9，`p = 0`，10 换成 9。同样是长度 1，以 9 结尾更容易被后面的数接上。',
+  },
+  {
+    at: 2, tails: [2], hit: 0, probes: [0],
+    caption: '读 2。`tails[0] = 9` ≥ 2，`p = 0`，9 换成 2。长度仍是 1，最小结尾降到 2。',
+  },
+  {
+    at: 3, tails: [2, 5], hit: 1, probes: [0],
+    caption: '读 5。`tails[0] = 2` < 5，`p = 1` 等于长度，追加。`tails = [2, 5]`。',
+  },
+  {
+    at: 4, tails: [2, 3], hit: 1, probes: [1, 0],
+    caption: '读 3。`tails[1] = 5` ≥ 3，往左；`tails[0] = 2` < 3，往右。`p = 1`，5 换成 3。长度 2 的结尾从 5 降到 3。',
+  },
+  {
+    at: 5, tails: [2, 3, 7], hit: 2, probes: [1],
+    caption: '读 7。`tails[1] = 3` < 7，往右到头，`p = 2`，追加。`tails = [2, 3, 7]`。',
+  },
+  {
+    at: 6, tails: [2, 3, 7, 101], hit: 3, probes: [1, 2],
+    caption: '读 101。`tails[1] = 3`、`tails[2] = 7` 都小于 101，`p = 3`，追加。长度到了 4。',
+  },
+  {
+    at: 7, tails: [2, 3, 7, 18], hit: 3, probes: [2, 3],
+    caption: '读 18。`tails[2] = 7` < 18，往右；`tails[3] = 101` ≥ 18，`p = 3`，101 换成 18。读完，`tails` 长度 4，答案是 4。',
+  },
+];
+
+<ProblemMeta slug="longest-increasing-subsequence" />
+
+## 题目
+
+给一个整数列表 `nums`，返回最长严格递增子序列的长度。
+
+- 子序列可以不连续，但要保持原来的先后顺序：从 `[10, 9, 2, 5]` 里挑出 `2, 5` 是子序列，`5, 2` 不是。
+- 严格递增：后一个数必须大于前一个，相等不算。
+- 元素可以是负数，也可以重复。空列表返回 0。
+- 时间复杂度要求 O(n log n)，n 是列表长度。
+
+## 样例
+
+| 输入 | 输出 | 说明 |
+|---|---|---|
+| `[10, 9, 2, 5, 3, 7, 101, 18]` | `4` | 例如 `2, 3, 7, 18` |
+| `[2, 2, 2]` | `1` | 相等不算递增 |
+| `[3, 4, 1]` | `2` | `3, 4` |
+| `[]` | `0` | 空列表 |
+
+第一个样例的最长子序列不止一条，`2, 5, 7, 101` 也是长度 4，题目只要长度。
+
+`[2, 2, 2]` 抓二分边界写错：把“第一个 ≥ x”写成“第一个 > x”，会得到 3。`[3, 4, 1]` 说明另一件事：算法最后留下的数组是 `[1, 4]`，它不是真实的子序列，但长度 2 是对的。
+
+## 思路
+
+每个长度只记一个数：这个长度的递增子序列最小能以几结尾。这些数排成递增数组 `tails`。每读一个数，二分找到它的位置，替换或追加。最后 `tails` 的长度就是答案。
+
+直接的 DP 是：`f[i]` 表示以 `nums[i]` 结尾的最长递增子序列长度，每个 `i` 回头看所有比它小的 `nums[j]`，取 `f[j] + 1` 的最大值，O(n²)。
+
+读到 `[10, 9, 2, 5]` 时，长度 1 的递增子序列有 `10`、`9`、`2`、`5` 四条。最值得留的是结尾最小的 `2`：后面来一个 3，能接在 2 后面，接不到 10、9、5 后面。所以每个长度只需记住能做到的最小结尾。
+
+`tails[k]` 是长度为 k + 1 的递增子序列里最小的结尾值。读完 `[10, 9, 2, 5, 3]` 时 `tails = [2, 3]`：长度 1 最小以 2 结尾，长度 2 最小以 3 结尾（`2, 3`），还没有长度 3。
+
+读进新数 `x` 时，设 `p` 是 `tails` 里第一个 ≥ `x` 的位置：
+
+- `p` 之前的结尾都比 `x` 小，`x` 能接在长度 `p` 的子序列后面，得到长度 `p + 1`、以 `x` 结尾的子序列。
+- `tails[p] ≥ x`，换成 `x` 不会更差，于是 `tails[p] = x`。
+- 所有结尾都比 `x` 小时，`p` 等于 `tails` 的长度，追加 `x`，最长长度加 1。
+
+`tails` 始终严格递增。一条长度 3 的子序列去掉最后一个数，就是一条结尾更小的长度 2 子序列，所以长度 3 的最小结尾一定大于长度 2 的。数组有序，`p` 就能二分查找，每个数 O(log n)。
+
+<Stepper title="用 [10, 9, 2, 5, 3, 7, 101, 18] 走一遍">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <p class="viz-row-label">nums（灰色是已经读过的数）</p>
+      <ArrayCells
+        values={nums}
+        cell={48}
+        tones={nums.map((_, i) => (i > f.at ? 'default' : i === f.at ? 'strong' : 'done'))}
+        pointers={[{ at: f.at, label: 'x' }]}
+      />
+      <p class="viz-row-label">tails（下方数字是子序列长度，青色底的格是二分时比较过的位置）</p>
+      <ArrayCells
+        values={[0, 1, 2, 3].map((k) => f.tails[k] ?? null)}
+        cell={48}
+        indexStart={1}
+        tones={[0, 1, 2, 3].map((k) => (k === f.hit ? 'strong' : f.probes.includes(k) ? 'soft' : k < f.tails.length ? 'default' : 'ghost'))}
+        pointers={[{ at: f.hit, label: 'p' }]}
+      />
+    </Step>
+  ))}
+</Stepper>
+
+最后一帧的 `tails = [2, 3, 7, 18]` 碰巧是一条真实的子序列，但不总是这样。`[3, 4, 1]` 读完后 `tails = [1, 4]`，而 1 在 `nums` 里排在 4 后面，`1, 4` 不是子序列。
+
+<Figure caption="读到 1 时，二分找到位置 0，把 3 换成 1。`tails[0] = 1` 表示长度 1 最小以 1 结尾，`tails[1] = 4` 表示长度 2 最小以 4 结尾（`3, 4`）。两格各管各的长度，连起来读没有意义。">
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">nums</p>
+      <ArrayCells values={[3, 4, 1]} tones={['soft', 'soft', 'strong']} />
+    </div>
+    <div style="margin-top:0">
+      <p class="viz-row-label">读完后的 tails</p>
+      <ArrayCells values={[1, 4]} tones={['strong', 'soft']} indexStart={1} />
+    </div>
+  </div>
+</Figure>
+
+`tails` 的长度是可靠的：位置 `k` 上有值，就真的存在一条长度 `k + 1` 的递增子序列。所以最后返回 `len(tails)`。
+
+## 代码
+
+<Solution slug="longest-increasing-subsequence" />
+
+两个版本都手写了 `lower_bound`，返回第一个 ≥ `x` 的位置。Python 标准库里的 `bisect.bisect_left(tails, x)` 做的是同一件事，可以直接替换；TypeScript 没有内置的二分查找，只能手写。`lo < hi`、`lo = mid + 1`、`hi = mid` 这三处任何一处写成别的形式，都容易死循环或差一位，建议记住这一种写法。
+
+TypeScript 里用 `(lo + hi) >> 1` 取中点。位运算会把数转成 32 位整数，这里 `hi` 不超过列表长度，不会溢出。
+
+## 复杂度
+
+n 是 `nums` 的长度，L 是答案（最长递增子序列的长度），L ≤ n。
+
+- **时间 O(n log L)**，也就是 O(n log n)：每个数做一次二分查找，`tails` 最长 L，一次查找最多比较 ⌈log₂(L + 1)⌉ 次，之后的追加或替换是 O(1)。
+- **空间 O(L)**：只存 `tails`。
+
+## 自测：相等元素和非递减
+
+<Aside type="caution" title="二分的边界决定了“严格”还是“不严格”">
+`[2, 2, 2]` 的正确答案是 1。读第二个 2 时，第一个 ≥ 2 的位置是 0，把 2 换成 2，长度不变。如果你得到 3，说明二分找的是“第一个 > x”的位置（相当于 `bisect_right`），相等的数被当成了可以接上。
+
+反过来，如果题目要的是**非递减**子序列（允许相等），正确做法恰好就是改用“第一个 > x”，`[2, 2, 2]` 的答案变成 3。
+
+`[0, 1, 0, 3, 2, 3]` 的正确答案是 4（`0, 1, 2, 3`）。读到 2 时要把 3 替换掉，`tails` 从 `[0, 1, 3]` 变成 `[0, 1, 2]`，后面的 3 才能接上。如果你得到 3，检查替换时下标是否差了一位。
+</Aside>
+
+## 延伸：要输出一条最长的子序列呢？
+
+`tails` 不能直接拿来当答案，`[3, 4, 1]` 已经说明了这一点。要多记两样东西：
+
+- `tail_idx[k]`：`tails[k]` 这个值在 `nums` 里的下标。
+- `parent[i]`：`nums[i]` 放进 `tails` 时接在谁后面。它放在位置 `p`，前一个就是“当时长度 `p` 的最佳结尾”，即 `tail_idx[p - 1]`；`p = 0` 时没有前驱，记 −1。
+
+读完之后，从 `tail_idx` 的最后一项出发，沿着 `parent` 倒着走，再反转一次就是答案。二分和替换的逻辑一行不改，时间仍是 O(n log n)，多出的 `parent` 占 O(n) 空间。
+
+<Figure caption="样例读完后的 `parent`。从下标 7（数值 18）出发：`parent[7] = 5`（7），`parent[5] = 4`（3），`parent[4] = 2`（2），`parent[2] = -1`，停。倒过来就是 `2, 3, 7, 18`。">
+  <Grid
+    corner="下标"
+    rowHeaders={['nums', 'parent']}
+    colHeaders={[0, 1, 2, 3, 4, 5, 6, 7]}
+    rows={[[10, 9, 2, 5, 3, 7, 101, 18], [-1, -1, -1, 2, 2, 4, 5, 5]]}
+    cellWidth={50}
+    tones={{ '0,2': 'soft', '0,4': 'soft', '0,5': 'soft', '0,7': 'strong', '1,2': 'soft', '1,4': 'soft', '1,5': 'soft', '1,7': 'strong' }}
+  />
+</Figure>
+
+<Solution slug="longest-increasing-subsequence" file="followup" />
+
+`parent` 记的是放入那一刻的前驱，之后 `tails` 再被改写也不影响它。`[3, 4, 1]` 里，1 放进位置 0 时把 `tail_idx[0]` 改成了 1 的下标，但 4 的 `parent` 早已记下 3 的下标 0，所以输出是 `[3, 4]`，不会被 1 带偏。
+
+最长递增子序列可能不止一条，样例里 `2, 5, 7, 101`、`2, 3, 7, 18` 都对。这段代码从最后一个长度的最小结尾往回走，返回的是 `[2, 3, 7, 18]`。本页的测试用 O(n²) DP 在 500 组随机输入上对拍，检查长度一致，并检查输出的确是原列表的严格递增子序列。
+
+## 参考
+
+- [力扣 300 · 最长递增子序列](https://leetcode.cn/problems/longest-increasing-subsequence/)
+- [Python 文档 · bisect 模块](https://docs.python.org/zh-cn/3/library/bisect.html)
+- [Wikipedia · Longest increasing subsequence](https://en.wikipedia.org/wiki/Longest_increasing_subsequence)（O(n log n) 解法和重建方法）
+- 两个序列之间的版本：<ProblemLink slug="longest-common-subsequence" />

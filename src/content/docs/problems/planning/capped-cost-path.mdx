@@ -1,0 +1,172 @@
+---
+title: 最多调用 K 次，最便宜的工具链多少钱
+description: 在有向图上求最多走 K 条边的最低费用，按调用次数分层做 Bellman-Ford，每层只从上一层转移。
+sidebar:
+  label: 19. 限 K 步的最便宜路径
+  order: 19
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Graph, Grid, Stepper, Step } from '~/components/viz';
+
+export const nodes = [
+  { id: '0', label: 0, x: 40, y: 96, tone: 'accent' },
+  { id: '1', label: 1, x: 170, y: 32 },
+  { id: '2', label: 2, x: 300, y: 96 },
+  { id: '3', label: 3, x: 430, y: 96, tone: 'accent' },
+];
+export const edges = [
+  { from: '0', to: '1', label: '1 元', directed: true },
+  { from: '1', to: '2', label: '1 元', directed: true },
+  { from: '0', to: '2', label: '6 元', directed: true },
+  { from: '2', to: '3', label: '1 元', directed: true },
+];
+
+export const empty = ['', '', '', ''];
+export const ghostRow = (r) => Object.fromEntries([0, 1, 2, 3].map((c) => [`${r},${c}`, 'ghost']));
+export const rowNames = ['最多 0 次', '最多 1 次', '最多 2 次', '最多 3 次'];
+export const colNames = ['到 0', '到 1', '到 2', '到 3'];
+export const frames = [
+  {
+    rows: [[0, '∞', '∞', '∞'], empty, empty, empty],
+    tones: { '0,0': 'strong', ...ghostRow(1), ...ghostRow(2), ...ghostRow(3) },
+    arrows: [],
+    caption: '第 0 层：不调用任何工具。起点 0 的费用是 0，其余都是 ∞，表示到不了。',
+  },
+  {
+    rows: [[0, '∞', '∞', '∞'], [0, 1, 6, '∞'], empty, empty],
+    tones: { '0,0': 'soft', '1,1': 'strong', '1,2': 'strong', ...ghostRow(2), ...ghostRow(3) },
+    arrows: [{ from: [0, 0], to: [1, 1] }, { from: [0, 0], to: [1, 2] }],
+    caption: '第 1 层先抄第 0 层，再逐条看边。0→1 得 0 + 1 = 1，0→2 得 6。1→2 和 2→3 的起点上一层还是 ∞，不更新。',
+  },
+  {
+    rows: [[0, '∞', '∞', '∞'], [0, 1, 6, '∞'], [0, 1, 2, '∞'], empty],
+    tones: { '1,1': 'soft', '2,2': 'strong', ...ghostRow(3) },
+    arrows: [{ from: [1, 1], to: [2, 2] }],
+    caption: '第 2 层，边 1→2：上一层到 1 是 1 元，加 1 得 2，比抄下来的 6 便宜，到 2 改成 2。',
+  },
+  {
+    rows: [[0, '∞', '∞', '∞'], [0, 1, 6, '∞'], [0, 1, 2, 7], empty],
+    tones: { '1,2': 'soft', '2,2': 'muted', '2,3': 'strong', ...ghostRow(3) },
+    arrows: [{ from: [1, 2], to: [2, 3] }],
+    caption: '边 2→3：读上一层的到 2，即 6 元，得 7。本层刚写的 2 元已用掉两次调用，不能再接。最多 2 次时答案是 7。',
+  },
+  {
+    rows: [[0, '∞', '∞', '∞'], [0, 1, 6, '∞'], [0, 1, 2, 7], [0, 1, 2, 3]],
+    tones: { '2,2': 'soft', '3,3': 'strong' },
+    arrows: [{ from: [2, 2], to: [3, 3] }],
+    caption: '第 3 层，边 2→3 读上一层的 2 元，得 3。最多 3 次时答案是 3，路线 0→1→2→3。其余格子不变。',
+  },
+];
+
+<ProblemMeta slug="capped-cost-path" />
+
+## 题目
+
+求从状态 `src` 到 `dst`、**最多调用 `limit` 次**工具的最低总费用。
+
+- 输入：状态数 `n`（编号 0 到 n−1）和边列表 `edges`。边 `[u, v, c]` 表示在状态 u 调用一次工具到达 v，花 c 元，c 是非负整数。
+- 到不了 `dst`，返回 −1。
+- `src` 等于 `dst` 时费用是 0，`limit` 为 0 也一样。
+- 图里可以有环，同一对状态之间也可以有多条边。
+- 规模：n ≤ 200，边数 ≤ 3000，limit ≤ 100。
+- `n` 不是正数、`limit` 为负、编号越界或费用为负时，抛出异常。
+
+## 样例
+
+<Figure caption="样例的图：边上是费用。最便宜的路线 0→1→2→3 要调用 3 次。">
+  <Graph nodes={nodes} edges={edges} />
+</Figure>
+
+`n = 4`，`edges = [[0,1,1], [1,2,1], [0,2,6], [2,3,1]]`，`src = 0`，`dst = 3`。
+
+| limit | 输出 | 说明 |
+|---|---|---|
+| 1 | `-1` | 一次调用到不了 3 |
+| 2 | `7` | 只能走 0→2→3，6 + 1 |
+| 3 | `3` | 走 0→1→2→3，1 + 1 + 1 |
+
+limit = 2 这一行专门抓两种错误：直接套 Dijkstra、不管步数，会答 3；只用一个数组原地更新（见思路），也会答 3。
+
+## 思路
+
+按调用次数分层做 Bellman-Ford：第 k 层只从第 k−1 层推，做 `limit` 层。
+
+为什么不能每个状态只记一个最低价？到状态 2 有两条路：0→1→2 花 2 元、用 2 次调用；0→2 花 6 元、用 1 次。limit = 2 时，便宜那条已用完额度，走不到 3；能到终点的是贵的那条。只留最低价，就把 6 元那条丢了。
+
+所以按调用次数分层。第 k 层的 `dist[v]` 是**最多调用 k 次**到达 v 的最低价。第 0 层只有起点是 0：`[0, ∞, ∞, ∞]`。
+
+从第 k−1 层推第 k 层，到 v 只有两种走法：
+
+- 少调一次也行，沿用第 k−1 层的 `dist[v]`。所以每层先把上一层整行抄下来。
+- 第 k 次调用走某条边 u→v，花费是第 k−1 层的 `dist[u]` 加 c。
+
+两者取小。用“起点费用 + 边费用”去压低终点费用，这个动作叫松弛。普通的 Bellman-Ford 把所有边松弛 n−1 轮；这里只做 `limit` 轮，每多一轮就多允许一次调用。
+
+<Stepper title="按层填表：样例从第 0 层到第 3 层">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <Grid rows={f.rows} rowHeaders={rowNames} colHeaders={colNames} tones={f.tones} arrows={f.arrows} cellWidth={56} />
+    </Step>
+  ))}
+</Stepper>
+
+为什么对？一条最多 k 步、到 v 的路线，要么不足 k 步，第 k−1 层已经算过；要么最后一步是边 u→v，前面恰好 k−1 步，费用不低于第 k−1 层的 `dist[u] + c`。反过来，表里每个数都对应一条步数不超过 k 的真实路线。两头一夹，第 k 层就是答案。
+
+每层只读上一层，这一点最容易写丢。只用一个数组原地更新，按 0→1、1→2、0→2、2→3 的顺序扫第一轮：到 1 改成 1；扫 1→2 时读到刚写的 1，到 2 变成 2；扫 2→3 又读到刚写的 2，到 3 变成 3。
+
+<Figure caption="原地更新的第一轮：一轮里连走了 0→1→2→3 三条边，却只算作 1 次调用。">
+  <Grid rows={[[0, 1, 2, 3]]} rowHeaders={['一个数组']} colHeaders={colNames} tones={{ '0,1': 'soft', '0,2': 'warn', '0,3': 'warn' }} cellWidth={56} />
+</Figure>
+
+一轮下来，数组声称“调用 1 次、花 3 元能到 3”，limit = 2 的答案也错成 3。代码里 `current` 从 `previous` 读、往自己写，保证一轮只多走一步。
+
+一个小优化：某一层算完和上一层完全相同，后面每层也不会变，可以提前结束。
+
+## 代码
+
+<Solution slug="capped-cost-path" />
+
+两种语言都用无穷大表示“到不了”：Python 是 `math.inf`，TypeScript 是 `Infinity`。∞ 加上费用还是 ∞，不需要特判，最后再换成 −1。Python 的 `current == previous` 逐个比较两个列表的元素，TypeScript 没有这种写法，用 `every` 逐格比较。费用总和最多是 limit 乘以单条边费用，远低于 `Number.MAX_SAFE_INTEGER`。
+
+## 复杂度
+
+n 是状态数，E 是边数，K 是 `limit`。
+
+- **时间 O(n + K·(n + E))**：初始化 O(n)；每一层抄一遍数组 O(n)，再扫一遍所有边 O(E)，最多做 K 层。按题目上限约是 100 × 3200，三十多万次操作。
+- **空间 O(n)**：只保留上一层和当前层两个数组。
+
+## 自测：两个会被原地更新骗过的输入
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+样例 limit = 2 的正确答案是 7。如果你得到 3，要么没有按层限制步数，要么只用了一个数组、一轮里读到了本轮刚写的值。
+
+`n = 3`，`edges = [[0,1,2], [1,2,3]]`，从 0 到 2，`limit = 1`，正确答案是 −1：到 2 至少要两次调用。如果你得到 5，就是原地更新在一轮里连走了两条边。
+</Aside>
+
+还有一处容易差一：有的题目说的是“最多经过 K 个中转站”，中转站不算起点和终点，对应的是最多 K + 1 次调用。
+
+## 延伸：还要输出这条工具链呢？
+
+只返回价钱，两层数组就够。要输出路线，就得知道每个数从哪来，而来源每层都可能不同：样例里第 1 层的到 2 来自 0→2，第 2 层的来自 1→2。所以一个全局的前驱数组不够用。
+
+直接的做法是保留每一层，再从第 limit 层的 `dst` 往回找。站在第 k 层的 v 上：
+
+- 如果第 k−1 层的 v 和它一样大，说明这一格是抄下来的，留在 v、退回第 k−1 层。
+- 否则一定有一条边 u→v，满足“第 k−1 层的 u 加 c”正好等于它。走到 u，退回第 k−1 层。
+
+样例 limit = 2：第 2 层到 3 是 7，第 1 层是 ∞，不是抄的；边 2→3 满足 6 + 1 = 7，退到第 1 层的 2。第 1 层到 2 是 6，第 0 层是 ∞；边 0→2 满足 0 + 6 = 6，退到 0。路线是 `[0, 2, 3]`。limit = 3 时按同样的方法得到 `[0, 1, 2, 3]`。
+
+每往回一步 k 都减 1，即使图里有 0 元的环也一定会停。空间变成 O(K·n)，时间仍是 O(K·(n + E))，回溯本身最多 K 步、每步扫一遍边。
+
+<Solution slug="capped-cost-path" file="followup" />
+
+## 参考
+
+- [力扣 787 · K 站中转内最便宜的航班](https://leetcode.cn/problems/cheapest-flights-within-k-stops/)
+- Richard Bellman. [On a routing problem](https://doi.org/10.1090/qam/102435). Quarterly of Applied Mathematics, 1958.
+- 《算法导论》（第 3 版）第 24.1 节：Bellman-Ford 算法。
+- 同样要靠“只读上一轮”防止重复使用的题：<ProblemLink slug="dual-budget-knapsack" />

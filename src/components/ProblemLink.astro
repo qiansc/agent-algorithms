@@ -1,0 +1,13 @@
+---
+import { getProblem, problemPath } from '../data/problems';
+
+interface Props {
+  slug: string;
+  label?: string;
+}
+
+const p = getProblem(Astro.props.slug);
+const text = Astro.props.label ?? `第 ${p.number} 题「${p.title}」`;
+---
+
+<a href={problemPath(p.slug)}>{text}</a>

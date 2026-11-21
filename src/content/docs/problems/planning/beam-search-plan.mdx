@@ -1,0 +1,193 @@
+---
+title: 给定动作分数，手写一次束搜索
+description: 每层把所有保留序列的后继放进同一个候选池，按累计分只留前 b 条，走满 d 步后取最高分。
+sidebar:
+  label: 24. 手写一次束搜索
+  order: 24
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Graph, Stepper, Step, treeLayout } from '~/components/viz';
+
+export const shape = {
+  id: 'root', label: '起', sub: '0', children: [
+    { id: 'A', label: 'A', sub: '−1', edgeLabel: '−1', children: [
+      { id: 'AX', label: 'X', sub: '−9', edgeLabel: '−8', children: [{ id: 'AXQ', label: 'Q', sub: '−9', edgeLabel: '0' }] },
+      { id: 'AY', label: 'Y', sub: '−4', edgeLabel: '−3', children: [{ id: 'AYQ', label: 'Q', sub: '−5', edgeLabel: '−1' }] },
+    ] },
+    { id: 'B', label: 'B', sub: '−2', edgeLabel: '−2', children: [
+      { id: 'BY', label: 'Y', sub: '−3', edgeLabel: '−1', children: [{ id: 'BYQ', label: 'Q', sub: '−9', edgeLabel: '−6' }] },
+      { id: 'BZ', label: 'Z', sub: '−4', edgeLabel: '−2', children: [{ id: 'BZQ', label: 'Q', sub: '−5', edgeLabel: '−1' }] },
+    ] },
+    { id: 'C', label: 'C', sub: '−4', edgeLabel: '−4', children: [{ id: 'CW', label: 'W', sub: '−4', edgeLabel: '0' }] },
+  ],
+};
+
+export const nodeTone = {
+  // 帧里写的是状态：strong 本层留下，accent 本层新生成、还没比较。
+  // 画到方块上时换成 accent 和 default：strong 的实心底色会盖住方块里的累计分。
+  strong: 'accent',
+  accent: 'default',
+};
+
+export function paint(node, tones, fallback) {
+  const state = tones[node.id] ?? fallback;
+  const tone = nodeTone[state] ?? state;
+  return {
+    ...node,
+    tone,
+    edgeTone: state === 'strong' ? 'accent' : tone === 'muted' || tone === 'ghost' ? 'muted' : undefined,
+    children: (node.children ?? []).map((c) => paint(c, tones, fallback)),
+  };
+}
+
+export function tree(tones, fallback = 'default') {
+  const t = treeLayout(paint(shape, tones, fallback), { levelGap: 92, siblingGap: 92, x0: 40, y0: 30 });
+  // 节点画成方块，累计分写在方块里，避免和边上的增量分挤在一起
+  return { ...t, nodes: t.nodes.map((n) => ({ ...n, shape: 'rect', w: 46, h: 48 })) };
+}
+
+export const all = tree({});
+
+export const frames = [
+  {
+    tones: { root: 'strong' }, pool: [],
+    caption: '束里只有空序列，累计分 0。宽度 `b = 2`，走 `d = 3` 步。',
+  },
+  {
+    tones: { root: 'soft', A: 'accent', B: 'accent', C: 'accent' },
+    pool: [['A −1', 'accent'], ['B −2', 'accent'], ['C −4', 'accent']],
+    caption: '第 1 层：展开空序列，得到 A（−1）、B（−2）、C（−4），都放进候选池。',
+  },
+  {
+    tones: { root: 'soft', A: 'strong', B: 'strong', C: 'muted', CW: 'muted' },
+    pool: [['A −1', 'strong'], ['B −2', 'strong'], ['C −4', 'muted']],
+    caption: '按累计分只留 2 条：A 和 B。C 被淘汰，它下面的 W 不会再展开。',
+  },
+  {
+    tones: { root: 'soft', A: 'soft', B: 'soft', C: 'muted', CW: 'muted', AX: 'accent', AY: 'accent', BY: 'accent', BZ: 'accent' },
+    pool: [['A→X −9', 'accent'], ['A→Y −4', 'accent'], ['B→Y −3', 'accent'], ['B→Z −4', 'accent']],
+    caption: '第 2 层：先展开 A，再展开 B。按生成顺序是 A→X（−9）、A→Y（−4）、B→Y（−3）、B→Z（−4），比的是两步的总分。',
+  },
+  {
+    tones: { root: 'soft', A: 'soft', B: 'soft', C: 'muted', CW: 'muted', AX: 'muted', AXQ: 'muted', AY: 'strong', BY: 'strong', BZ: 'muted', BZQ: 'muted' },
+    pool: [['A→X −9', 'muted'], ['A→Y −4', 'strong'], ['B→Y −3', 'strong'], ['B→Z −4', 'muted']],
+    caption: 'B→Y 的 −3 最高，留下。A→Y 和 B→Z 并列 −4，A→Y 先生成，留它。第 1 层落后的 B 这一层领先了。',
+  },
+  {
+    tones: { root: 'soft', A: 'soft', B: 'soft', C: 'muted', CW: 'muted', AX: 'muted', AXQ: 'muted', AY: 'soft', BY: 'soft', BZ: 'muted', BZQ: 'muted', AYQ: 'accent', BYQ: 'accent' },
+    pool: [['B→Y→Q −9', 'accent'], ['A→Y→Q −5', 'accent']],
+    caption: '第 3 层：束里 B→Y 在前，先生成 B→Y→Q（−3 − 6 = −9），再生成 A→Y→Q（−4 − 1 = −5）。',
+  },
+  {
+    tones: { root: 'soft', A: 'soft', B: 'soft', C: 'muted', CW: 'muted', AX: 'muted', AXQ: 'muted', AY: 'soft', BY: 'soft', BZ: 'muted', BZQ: 'muted', AYQ: 'strong', BYQ: 'soft' },
+    pool: [['A→Y→Q −5', 'strong'], ['B→Y→Q −9', 'soft']],
+    caption: '排序后 A→Y→Q 第一。走满 3 步，返回 (A, Y, Q), −5。',
+  },
+];
+
+<ProblemMeta slug="beam-search-plan" />
+
+## 题目
+
+规划器每一步从几个动作里选一个，模型给每个动作打了分。写一个束搜索（beam search）函数 `beam_plan(expand, depth, width)`，返回走 `depth` 步后累计分最高的动作序列。
+
+- `expand(path)` 是回调：传入当前动作序列 `path`（Python 是元组，TypeScript 是数组），按固定顺序返回后继的 `(动作名, 增量分)` 列表。同一 `path` 下动作名不重复；增量分是整数，越大越好。返回空列表表示走不下去。
+- 一开始只有空序列，累计分 0。每一层按束里的顺序展开每条序列，把**这一层所有新序列**放在一起，按累计分从高到低留前 `width` 条。同分时先生成的在前。
+- 走满 `depth` 步后返回累计分最高的 `(路径, 累计分)`，并列取先生成的。没有后继的序列直接消失。某一层一个新序列都没有时，返回 `None`（TypeScript 返回 `null`）。
+- `depth = 0` 时返回空路径和 0 分。`width < 1` 或 `depth < 0` 时抛出异常。
+
+测试用的包装 `beam_plan_from_table(table, depth, width)` 把一张表转成回调再交给 `beam_plan`。表的每一项是 `[路径, [[动作, 增量分], ...]]`，表里没有的路径没有后继。
+
+## 样例
+
+下面这棵树里，边上的数是增量分，方块里动作名下面的数是累计分。
+
+<Figure caption="样例用的搜索树。`起` 是空序列。第 1 层 A 的累计分最高，但第 2 层分最高的是 B→Y。">
+  <Graph nodes={all.nodes} edges={all.edges} width={all.width} height={all.height} />
+</Figure>
+
+| 深度 | 束宽 | 输出 | 说明 |
+|---|---|---|---|
+| 2 | 2 | `(('B','Y'), -3)` | A、B 都留下，第 2 层 B→Y 最高 |
+| 2 | 1 | `(('A','Y'), -4)` | 第 1 层只留 A，B 当场被淘汰 |
+| 3 | 2 | `(('A','Y','Q'), -5)` | 第 2 层 A→Y 和 B→Z 同分，留先生成的 A→Y |
+| 0 | 2 | `((), 0)` | 一步都不走 |
+| 4 | 2 | `None` | 第 3 层的序列都没有后继 |
+
+第 2 行说明束搜索不一定找到最优解：宽度 1 就是每步只拿最高分，第 1 层的 A 看着更好，最后输给了 B→Y。第 3 行卡同分处理，见“自测”。
+
+## 思路
+
+每层把束里所有序列的后继放进一个候选池，按累计分稳定排序，留前 `b` 条，重复 `d` 层。
+
+宽度 1 就是每步只拿最高分；全部留着就是穷举。束搜索介于两者之间：每层最多带 `b` 条序列往下走，其余的丢掉不再考虑。
+
+用样例里 `d = 3, b = 2` 走一遍：
+
+<Stepper title="束宽 2，走 3 步">
+  {frames.map((f) => {
+    const t = tree(f.tones, 'ghost');
+    return (
+      <Step caption={f.caption}>
+        <Graph nodes={t.nodes} edges={t.edges} width={t.width} height={t.height} />
+        <ArrayCells
+          label="候选池"
+          values={f.pool.length ? f.pool.map((p) => p[0]) : ['空']}
+          tones={f.pool.length ? f.pool.map((p) => p[1]) : ['ghost']}
+          index={false}
+          cell={f.pool.length > 3 ? 104 : 120}
+        />
+      </Step>
+    );
+  })}
+</Stepper>
+
+候选池整层共用。第 2 层的四个候选来自 A 和 B，要放在一起排序，只留 2 条。如果每个父序列内部各留 2 条，A 留 X、Y，B 留 Y、Z，这一层就留了 4 条。宽度为 b 时这种写法每层最多留 b² 条，规则就变了。
+
+比的是累计分，不是这一步的增量分。第 2 层 B→Y 的增量是 −1，A→Y 是 −3，排序用的是累计的 −3 和 −4。所以第 1 层落后的 B 在第 2 层可以反超。
+
+同分时保持生成顺序。A→Y 和 B→Z 都是 −4，A 在束里排在 B 前面，A→Y 先生成，留它。只按分数做稳定排序就行，不需要额外的键。
+
+## 代码
+
+<Solution slug="beam-search-plan" />
+
+两种语言都靠排序的稳定性处理同分：Python 的 `sort` 一直是稳定的；JavaScript 的 `Array.prototype.sort` 从 ES2019 起才保证稳定，Node 24 没有问题。比较函数写成 `(x, y) => y[1] - x[1]`，按分数从高到低。
+
+新序列都是复制出来的：Python 用 `path + (action,)` 生成新元组，TypeScript 用 `[...path, action]` 生成新数组。不要在同一个数组上 `push` 再 `pop`，候选池里的序列会互相串改。TypeScript 把回调参数声明成 `readonly string[]`，提醒调用方不要改它。
+
+`beam_plan_from_table` 只是测试用的包装。TypeScript 版用 `JSON.stringify(path)` 做表的键，因为数组不能直接当 `Map` 的键（两个内容相同的数组是不同的对象）。
+
+## 复杂度
+
+d 是深度，b 是束宽，m 是一个序列最多有几个后继。
+
+- **时间 O(d · bm · (d + log(bm)))**：每层最多生成 bm 个候选，排序 O(bm log(bm))；每个候选复制一次路径，路径长度不超过 d。另外每层调用 b 次 `expand`，回调本身的耗时另算。
+- **空间 O(bm · d)**：一层的候选池最多 bm 条，每条带一个长度不超过 d 的路径。
+
+## 自测：同分和走不到底
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+样例树上 `depth = 3, width = 2` 的正确答案是 `(('A','Y','Q'), -5)`。如果你得到 `(('B','Z','Q'), -5)`，分数虽然一样，但第 2 层留错了序列。常见原因是把路径也放进了排序键，例如 `key=lambda c: (c[1], c[0])` 配 `reverse=True`，路径 `('B','Z')` 比 `('A','Y')` 大，就被排到了前面。
+
+同一棵树上 `depth = 4` 的正确答案是 `None`。如果程序报下标越界，是候选池为空时还去取了第一个；如果返回了 3 步的 `(('A','Y','Q'), -5)`，是候选池为空时提前跳出循环，把上一层的结果当成了答案。
+</Aside>
+
+## 延伸：模型给的是概率，怎么合并多步的分？
+
+模型通常给每个动作一个条件概率。一条序列的概率是每一步概率相乘。比如两条两步序列，一条是 0.6 × 0.3 = 0.18，另一条是 0.4 × 0.9 = 0.36。
+
+取对数，把乘法变成加法：增量分改成 `ln p`，代码不用改，只是分数从整数变成浮点数。上面两条序列的分变成 ln 0.6 + ln 0.3 ≈ −0.511 − 1.204 = −1.715 和 ln 0.4 + ln 0.9 ≈ −0.916 − 0.105 = −1.022，大小关系和概率一样，因为对数是单调递增的。
+
+不直接乘概率，是因为连乘会下溢。400 步、每步概率 0.001，乘起来是 10⁻¹²⁰⁰，远小于双精度浮点数能表示的最小正数（约 5 × 10⁻³²⁴），结果直接变成 0，所有序列都一样了；取对数后是 400 × ln 0.001 ≈ −2763.1，照常比较。
+
+如果序列可以提前结束（模型输出结束符），长度不同的序列放在一起比会出问题：每多一步就多加一个负数，短序列天然占便宜。例如一条序列在第 2 步结束，两步概率是 0.6、0.3，总分 −1.715；另一条走了 4 步，概率是 0.4、0.9、0.5、0.6，总分 −2.226，按总分选短的那条。常见的修正是除以长度，比平均每步的分：短的是 −1.715 / 2 ≈ −0.857，长的是 −2.226 / 4 ≈ −0.556，结果换成了长的那条。用哪种评分会改变答案，写之前要先定下来；已经结束的序列也要单独存起来，不再展开，但要参加最后的比较。
+
+## 参考
+
+- 《动手学深度学习》[束搜索](https://zh.d2l.ai/chapter_recurrent-modern/beam-search.html)：贪心、穷举和束搜索的对比，以及长度归一化的评分。
+- 站内相关：<ProblemLink slug="uct-selection" />（另一种在树上选下一步的方法）、<ProblemLink slug="capped-cost-path" />

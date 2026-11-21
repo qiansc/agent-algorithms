@@ -1,0 +1,58 @@
+---
+// DPO 损失 ln(1 + e^(-m)) 随 margin m 变化的曲线，标出正文里的三个点。
+// 只用 viz.css 里已有的类，深浅色自动切换。
+const W = 616;
+const H = 270;
+const left = 52;
+const right = 600;
+const top = 18;
+const bottom = 226;
+const mMin = -4;
+const mMax = 4;
+const yMax = 4.5;
+const sx = (m: number) => left + ((m - mMin) / (mMax - mMin)) * (right - left);
+const sy = (v: number) => bottom - (v / yMax) * (bottom - top);
+const loss = (m: number) => Math.max(-m, 0) + Math.log1p(Math.exp(-Math.abs(m)));
+
+const curve: string[] = [];
+for (let i = 0; i <= 160; i++) {
+  const m = mMin + ((mMax - mMin) * i) / 160;
+  curve.push(`${i === 0 ? 'M' : 'L'} ${sx(m).toFixed(1)} ${sy(loss(m)).toFixed(1)}`);
+}
+const xTicks = [-4, -3, -2, -1, 0, 1, 2, 3, 4];
+const yTicks = [0, 1, 2, 3, 4];
+const points = [
+  { m: -1, tone: 'warn', text: '方向反了：1.313', dx: 10, dy: -12, anchor: 'start' },
+  { m: 0, tone: 'accent', text: '两边差相等：ln 2 ≈ 0.693', dx: 10, dy: -14, anchor: 'start' },
+  { m: 1, tone: 'strong', text: '样例 1：0.313', dx: 10, dy: -12, anchor: 'start' },
+];
+---
+
+<svg class="viz" viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img" aria-label="DPO 损失随 margin 变化的曲线">
+  {yTicks.map((v) => (
+    <g class="viz-tick">
+      <line x1={left} x2={right} y1={sy(v)} y2={sy(v)} />
+      <text x={left - 10} y={sy(v)} text-anchor="end" dominant-baseline="central">{v}</text>
+    </g>
+  ))}
+  {xTicks.map((m) => (
+    <g class="viz-tick">
+      <text x={sx(m)} y={bottom + 16} text-anchor="middle">{m}</text>
+    </g>
+  ))}
+  <line class="viz-axis" x1={left} x2={right} y1={bottom} y2={bottom} />
+  <line class="viz-axis" x1={sx(0)} x2={sx(0)} y1={top} y2={bottom} />
+  <path class="viz-edge dashed" d={`M ${sx(-4)} ${sy(4)} L ${sx(0)} ${sy(0)}`} />
+  <text class="viz-label" x={sx(-3.5) + 14} y={sy(3.5) + 4}>m 很负时 ≈ −m</text>
+  <path class="viz-edge t-accent" d={curve.join(' ')} />
+  {points.map((p) => (
+    <g class={`viz-node t-${p.tone}`}>
+      <circle cx={sx(p.m)} cy={sy(loss(p.m))} r="5.5" />
+    </g>
+  ))}
+  {points.map((p) => (
+    <text x={sx(p.m) + p.dx} y={sy(loss(p.m)) + p.dy} text-anchor={p.anchor} font-size="13">{p.text}</text>
+  ))}
+  <text class="viz-label" x={right} y={bottom + 36} text-anchor="end">m = β × (当前模型偏好差 − 参考模型偏好差)</text>
+  <text class="viz-label" x={left - 10} y={top - 6} text-anchor="end">损失</text>
+</svg>

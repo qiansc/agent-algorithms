@@ -1,0 +1,130 @@
+---
+// 带断轴的时间线：把相距很远的几段时间（例如 0 秒附近和 60 秒附近）画在一起，
+// 中间用折断号隔开。请求画成圆点，同一时刻的请求往上叠；窗口 (from, to] 画成一条带子，
+// 左端空心表示不含，右端实心表示包含。颜色只用 viz.css 里的 tone 类和变量。
+import { toneClass, type Tone } from '~/components/viz/shared';
+
+interface Req {
+  t: number;
+  label: string;
+  tone?: Tone;
+}
+interface Props {
+  pieces: [number, number][];
+  requests: Req[];
+  window?: { from: number; to: number; label?: string } | null;
+  pointer?: { t: number; label: string; tone?: Tone } | null;
+  scale?: number;
+  stack?: number; // 预留几层圆点的高度；同一组动画里各帧传同一个值，图的高度就不会跳
+  ariaLabel?: string;
+}
+
+const { pieces, requests, window: win = null, pointer = null, scale = 44, stack = 1, ariaLabel } = Astro.props;
+const gap = 36;
+const left = 16;
+const starts: number[] = [];
+let acc = left;
+for (const [a, b] of pieces) {
+  starts.push(acc);
+  acc += (b - a) * scale + gap;
+}
+const axisEnd = acc - gap;
+const width = Math.ceil(axisEnd + left);
+const maxStack = Math.max(stack, ...requests.map((r) => requests.filter((q) => q.t === r.t).length));
+const r = 12;
+const step = 28;
+const topPad = (pointer ? 30 : 6) + (win ? 26 : 0);
+const axisY = topPad + 20 + maxStack * step;
+const height = axisY + 30;
+
+function x(t: number): number {
+  for (let i = 0; i < pieces.length; i++) {
+    const [a, b] = pieces[i];
+    if (t >= a && t <= b) return starts[i] + (t - a) * scale;
+  }
+  // 落在断开的部分：贴到最近一段的端点
+  if (t < pieces[0][0]) return left - 8;
+  for (let i = 0; i < pieces.length - 1; i++) {
+    if (t > pieces[i][1] && t < pieces[i + 1][0]) return starts[i] + (pieces[i][1] - pieces[i][0]) * scale + gap / 2;
+  }
+  return axisEnd + 8;
+}
+
+const seen = new Map<number, number>();
+const dots = requests.map((q) => {
+  const k = seen.get(q.t) ?? 0;
+  seen.set(q.t, k + 1);
+  return { ...q, cx: x(q.t), cy: axisY - 20 - k * step };
+});
+const ticks = pieces.flatMap(([a, b]) => Array.from({ length: b - a + 1 }, (_, i) => a + i));
+const visible = (t: number) => pieces.some(([a, b]) => t >= a && t <= b);
+const bandTop = axisY - 20 - (maxStack - 1) * step - r - 6;
+// 窗口左端不含：带子从左端点右侧一个圆点半径处开始，压在左端点上的请求不会被涂进窗口
+const bandLeft = win ? (visible(win.from) ? x(win.from) + r + 2 : left - 8) : 0;
+---
+
+<svg class="viz" viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label={ariaLabel ?? '时间线'}>
+  {win && (
+    <g>
+      <rect
+        x={bandLeft}
+        y={bandTop}
+        width={x(win.to) + r + 2 - bandLeft}
+        height={axisY - 2 - bandTop}
+        rx="4"
+        style="fill: var(--viz-accent-soft); stroke: none; opacity: 0.75"
+      />
+      {win.label && (
+        <text x={(bandLeft + x(win.to)) / 2} y={bandTop - 9} text-anchor="middle" style="fill: var(--viz-accent); font-size: 13px; font-weight: 600">{win.label}</text>
+      )}
+    </g>
+  )}
+  {pieces.map(([a, b], i) => (
+    <line class="viz-axis" x1={starts[i] - 6} x2={starts[i] + (b - a) * scale + 6} y1={axisY} y2={axisY} />
+  ))}
+  {pieces.slice(1).map((_, i) => {
+    const mx = starts[i + 1] - gap / 2;
+    return (
+      <g style="stroke: var(--viz-line); stroke-width: 1.4">
+        <line x1={mx - 7} y1={axisY + 6} x2={mx - 1} y2={axisY - 6} />
+        <line x1={mx + 1} y1={axisY + 6} x2={mx + 7} y2={axisY - 6} />
+      </g>
+    );
+  })}
+  {ticks.map((t) => (
+    <g class="viz-tick">
+      <line x1={x(t)} x2={x(t)} y1={axisY} y2={axisY + 4} style="stroke-dasharray: none" />
+      <text x={x(t)} y={axisY + 18} text-anchor="middle">{t}</text>
+    </g>
+  ))}
+  {win && (
+    <line
+      x1={visible(win.from) ? x(win.from) : left - 8}
+      x2={x(win.to)}
+      y1={axisY}
+      y2={axisY}
+      style="stroke: var(--viz-accent); stroke-width: 3"
+    />
+  )}
+  {win && visible(win.from) && (
+    <circle cx={x(win.from)} cy={axisY} r="4.5" style="fill: var(--sl-color-bg, var(--sl-color-black)); stroke: var(--viz-accent); stroke-width: 2" />
+  )}
+  {win && visible(win.to) && <circle cx={x(win.to)} cy={axisY} r="4.5" style="fill: var(--viz-accent); stroke: var(--viz-accent); stroke-width: 2" />}
+  {dots.map((d) => (
+    <g class={`viz-node ${toneClass(d.tone)}`}>
+      <circle cx={d.cx} cy={d.cy} r={r} />
+      <text x={d.cx} y={d.cy} text-anchor="middle" dominant-baseline="central" style="font-size: 12px">{d.label}</text>
+    </g>
+  ))}
+  {pointer && (() => {
+    const px = x(pointer.t);
+    const top = dots.filter((d) => d.t === pointer.t).reduce((m, d) => Math.min(m, d.cy), axisY) - r;
+    const y0 = win ? bandTop - 26 : top - 26;
+    return (
+      <g class={`viz-pointer ${toneClass(pointer.tone ?? 'accent')}`}>
+        <text x={px} y={y0 - 4} text-anchor="middle">{pointer.label}</text>
+        <path d={`M ${px} ${y0} V ${top - 3} M ${px - 4} ${top - 9} L ${px} ${top - 3} L ${px + 4} ${top - 9}`} />
+      </g>
+    );
+  })()}
+</svg>

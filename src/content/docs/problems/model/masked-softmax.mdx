@@ -1,0 +1,188 @@
+---
+title: 合法动作的概率：手写带掩码的稳定 softmax
+description: 只在合法动作上做 softmax：减去合法动作里的最大分再取指数，避免溢出和 0/0，非法动作概率为 0。
+sidebar:
+  label: 31. 带掩码的稳定 softmax
+  order: 31
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Bars, Stepper, Step } from '~/components/viz';
+
+export const names = ['查询', '比价', '下单', '付款'];
+export const frames = [
+  {
+    items: [2.0, 1.0, 0.1, 3.0].map((v, i) => ({ label: names[i], value: v, tone: 'default' })),
+    digits: 1,
+    caption: '模型给四个动作打的原始分（logits）是 2.0、1.0、0.1、3.0。`付款` 分数最高，但还没下单，这一步不能付款。',
+  },
+  {
+    items: [2.0, 1.0, 0.1, 3.0].map((v, i) => ({ label: names[i], value: v, tone: i === 3 ? 'muted' : 'default', text: i === 3 ? '禁用' : undefined })),
+    digits: 1,
+    caption: '按 `allowed = [True, True, True, False]` 排除 `付款`。后面找最大值、求和都只看前三个。',
+  },
+  {
+    items: [0, -1.0, -1.9, 0].map((v, i) => ({ label: names[i], value: v, tone: i === 3 ? 'muted' : i === 0 ? 'accent' : 'default', text: i === 3 ? '—' : undefined })),
+    digits: 1, min: -2, max: 0.4,
+    caption: '合法动作里最大的是 `查询` 的 2.0。每个合法分数减去 2.0，得到 0、−1.0、−1.9。温度是 1，除以 1 不变。',
+  },
+  {
+    items: [1, 0.368, 0.150, 0].map((v, i) => ({ label: names[i], value: v, tone: i === 3 ? 'muted' : 'default', text: i === 3 ? '0' : undefined })),
+    digits: 3, max: 1,
+    caption: '取指数：exp(0) = 1，exp(−1.0) ≈ 0.368，exp(−1.9) ≈ 0.150。`付款` 的权重直接记 0。',
+  },
+  {
+    items: [0.659, 0.242, 0.099, 0].map((v, i) => ({ label: names[i], value: v, tone: i === 3 ? 'muted' : 'accent', text: i === 3 ? '0' : undefined })),
+    digits: 3, max: 1,
+    caption: '权重之和 1 + 0.368 + 0.150 ≈ 1.517。各除以 1.517，得到 0.659、0.242、0.099、0。',
+  },
+];
+
+<ProblemMeta slug="masked-softmax" />
+
+## 题目
+
+实现 `action_probs(logits, allowed, temperature)`，算出 Agent 下一步选每个动作（如“查询、比价、下单、付款”）的概率。
+
+- `logits`：每个动作的原始分数，范围 −10000 到 10000。
+- `allowed`：等长的布尔数组，表示这个动作此刻能不能执行。
+- `temperature`：温度，范围 0.01 到 100。
+- 返回：每个动作的概率。合法动作的概率与 `exp(分数 / 温度)` 成正比，合起来是 1；非法动作的概率是 0。
+- 两个数组长度不同、温度不大于 0、没有合法动作时，抛出 `ValueError`（TypeScript 抛出 `Error`）。
+
+## 样例
+
+| logits | allowed | 温度 | 输出 |
+|---|---|---|---|
+| `[1000, 2000, 1000]` | `[T, F, T]` | 1 | `[0.5, 0, 0.5]` |
+| `[2.0, 1.0, 0.1, 3.0]` | `[T, T, T, F]` | 1 | `[0.659, 0.242, 0.099, 0]` |
+| `[2.0, 1.0, 0.1, 3.0]` | `[T, T, T, F]` | 0.5 | `[0.864, 0.117, 0.019, 0]` |
+
+（表里的概率保留三位小数，`T`、`F` 是 `True`、`False` 的缩写。）
+
+样例 1 专门防数值错误。两个合法动作同分，答案是各 0.5，但直接算 `exp(1000)` 会溢出。最高分 2000 又恰好属于非法动作，减错最大值就会得到 0/0。
+
+## 思路
+
+非法动作的权重直接记 0；合法动作的分数先减去合法动作里的最大分，再取指数、除以总和。
+
+softmax 本身就是“每个分数取 `exp(x)`，再除以总和”。掩码只是让非法动作不进总和。
+
+### 为什么要先减去最大值
+
+`exp` 增长得非常快。双精度浮点数最大大约是 1.8 × 10<sup>308</sup>，而 `exp(710)` 就超过了它。样例 1 的分数是 1000，`exp(1000)` 在 Python 里直接抛出 `OverflowError`，在 JavaScript 里得到 `Infinity`，再算 `Infinity / Infinity` 就是 `NaN`。
+
+办法是让分子分母同时乘上同一个数 `exp(-m)`，比值不变：
+
+`exp(x_i) / Σ exp(x_j)` = `exp(x_i − m) / Σ exp(x_j − m)`
+
+取 m 为最大分数，每一项的指数都不超过 0，权重都在 0 到 1 之间。最大的那一项正好是 `exp(0) = 1`，所以总和至少是 1，分母不会是 0。
+
+### m 必须是合法动作里的最大值
+
+样例 1 里所有分数的最大值是 2000，但它属于下标 1 的非法动作。三种减法的结果：
+
+| 减去的值 | 两个合法动作的指数 | 权重 | 总和 | 结果 |
+|---|---|---|---|---|
+| 合法最大值 1000 | 0、0 | 1、1 | 2 | `[0.5, 0, 0.5]` |
+| 全局最大值 2000 | −1000、−1000 | 0、0（下溢） | 0 | 0/0：Python 抛 `ZeroDivisionError`，JS 得到 `NaN` |
+| 不减 | 1000、1000 | 溢出 | — | Python 抛 `OverflowError`，JS 得到 `NaN` |
+
+`exp(−1000)` 约为 5 × 10<sup>−435</sup>，比双精度能表示的最小正数 5 × 10<sup>−324</sup> 还小，只能舍入成 0。两个合法权重都成了 0，比例就丢了。
+
+<Figure caption="样例 1 两个合法动作的权重。左边减 1000，权重是 1 和 1；右边减 2000，权重都下溢成 0。">
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">减 1000（正确）</p>
+      <Bars items={[{ label: '动作 0', value: 1, tone: 'accent' }, { label: '动作 1', value: 0, tone: 'muted', text: '禁用' }, { label: '动作 2', value: 1, tone: 'accent' }]} max={1} />
+    </div>
+    <div style="margin-top: 0">
+      <p class="viz-row-label">减 2000（错误）</p>
+      <Bars items={[{ label: '动作 0', value: 0, tone: 'warn', text: '0' }, { label: '动作 1', value: 0, tone: 'muted', text: '禁用' }, { label: '动作 2', value: 0, tone: 'warn', text: '0' }]} max={1} />
+    </div>
+  </div>
+</Figure>
+
+所以要减**合法动作里的最大值**。这样至少有一个合法权重是 1，总和不会是 0。
+
+### 用样例 2 走一遍
+
+<Stepper title="样例 2，温度 1：从原始分数到概率">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <Bars items={f.items.map((it) => ({ ...it, text: it.text ?? it.value.toFixed(f.digits) }))} min={f.min} max={f.max} />
+    </Step>
+  ))}
+</Stepper>
+
+### 温度改变什么
+
+温度 T 是在取指数之前把分数除以 T。样例 2 降到 0.5，相当于分差放大一倍：减去最大值后变成 0、−2.0、−3.8，概率变成 0.864、0.117、0.019。
+
+<Figure caption="温度从 1 降到 0.5，`查询` 与 `比价` 的概率之比从 e ≈ 2.72 变成 e² ≈ 7.39。顺序不变，`付款` 始终是 0。">
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">温度 1</p>
+      <Bars items={[0.659, 0.242, 0.099, 0].map((v, i) => ({ label: names[i], value: v, tone: i === 3 ? 'muted' : 'accent' }))} digits={3} max={1} />
+    </div>
+    <div style="margin-top: 0">
+      <p class="viz-row-label">温度 0.5</p>
+      <Bars items={[0.864, 0.117, 0.019, 0].map((v, i) => ({ label: names[i], value: v, tone: i === 3 ? 'muted' : 'accent' }))} digits={3} max={1} />
+    </div>
+  </div>
+</Figure>
+
+两个动作分差为 d 时，概率之比是 `exp(d / T)`。T 越小，最高分越占优；T 越大，分布越平。T 不改变合法动作之间的排序。
+
+## 代码
+
+<Solution slug="masked-softmax" />
+
+两个版本的一个真实差别在溢出时的表现：Python 的 `math.exp(1000)` 抛出 `OverflowError`，JavaScript 的 `Math.exp(1000)` 安静地返回 `Infinity`，错误会一路传成 `NaN`。同样，Python 的 `0.0 / 0.0` 抛错，JavaScript 得到 `NaN`。所以 JS 版写错了不会报错，只会在结果里出现 `NaN`，更难发现。
+
+温度检查写成 `not temperature > 0`（TS 是 `!(temperature > 0)`），这样温度是 `NaN` 时也会被拒绝；写成 `temperature <= 0` 会放过 `NaN`。
+
+## 复杂度
+
+V 是动作的个数。
+
+- **时间 O(V)**：找最大值、算权重、求和、相除，各扫一遍。
+- **空间 O(V)**：权重数组和返回的概率数组。
+
+## 自测：被禁用的动作分数极高
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`logits = [-10000, 10000]`，`allowed = [True, False]`，温度 1，正确答案是 `[1.0, 0.0]`：只有一个合法动作，它拿走全部概率。
+
+常见的另一种掩码写法，是给非法动作的分数加上一个“很大的负数”再做普通 softmax。如果这个数取 −10000，第二个动作变成 10000 − 10000 = 0，反而比第一个的 −10000 大得多，你会得到 `[0.0, 1.0]`。题目的分数范围是 ±10000，所以要么像本页这样直接把权重记 0，要么用 −∞（`float("-inf")`、`-Infinity`），`exp(−∞) = 0`。
+
+`logits = [1000, 2000, 1000]`，`allowed = [True, False, True]`，如果得到 `NaN` 或除零错误，说明减的是全局最大值而不是合法最大值。
+</Aside>
+
+本页代码还测了只有一个合法动作、全部同分、最低温度 0.01 配最大分差、全是很负的分数、五种非法输入，以及 40 个随机动作与 60 位十进制精度计算的对拍。
+
+## 延伸：要返回 log 概率呢？
+
+训练时算交叉熵、采样时比较候选，常常要的是 `log p`，而不是 `p`。最直接的写法是先调用 `action_probs`，再对结果取 `log`。
+
+换一组数试试：`logits = [0, -800]`，两个都合法，温度 1。第二个动作的真实概率约为 e<sup>−800</sup> ≈ 4 × 10<sup>−348</sup>，比双精度能表示的最小正数还小，`action_probs` 返回的是 0。再取 `log`，Python 的 `math.log(0)` 抛错，JavaScript 得到 `-Infinity`。可正确答案只是一个普通的数：−800。
+
+改法是不先算 `p`，直接在对数里化简。记 `s_i = (x_i − m) / T`，
+
+`log p_i` = `s_i − log(Σ exp(s_j))`
+
+右边第二项的求和至少是 1、至多是合法动作个数，取 `log` 后在 0 到 log V 之间，不会溢出也不会下溢。第一项 `s_i` 就是减完最大值的分数，−800 原样保留。这个写法通常叫 log-softmax，后面那一项叫 log-sum-exp。非法动作的 log 概率是 −∞。
+
+<Solution slug="masked-softmax" file="followup" />
+
+`[0, -800]` 的结果是 `[0.0, -800.0]`。样例 2 的结果是 `[-0.417, -1.417, -2.317, -inf]`，前三项取 `exp` 后和 `action_probs` 的输出一致（误差小于 10<sup>−12</sup>）。
+
+## 参考
+
+- [SciPy 文档 · scipy.special.softmax](https://docs.scipy.org/doc/scipy/reference/generated/scipy.special.softmax.html)：公式与“减去最大值不改变结果”的说明
+- [PyTorch 文档 · torch.nn.functional.log_softmax](https://pytorch.org/docs/stable/generated/torch.nn.functional.log_softmax.html)
+- Goodfellow, Bengio, Courville,《Deep Learning》第 4.1 节“上溢和下溢”，[在线版](https://www.deeplearningbook.org/contents/numerical.html)
+- 接着读：<ProblemLink slug="top-p-sampling" />、<ProblemLink slug="causal-attention" />（注意力里的掩码也是同一个技巧）

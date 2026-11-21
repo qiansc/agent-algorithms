@@ -1,0 +1,183 @@
+---
+title: 一批查询和文档，算 InfoNCE 对比损失
+description: 把 batch 内其他文档当负例，对余弦相似度除以温度后的每一行做交叉熵，求平均得到 InfoNCE 损失。
+sidebar:
+  label: 42. InfoNCE 对比损失
+  order: 42
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Grid, Bars } from '~/components/viz';
+
+export const heads = ['d0', 'd1', 'd2', '损失'];
+export const rowNames = ['q0', 'q1', 'q2'];
+export const cosRows = [
+  ['1.000', '0.447', '0.000', '0.383'],
+  ['0.707', '0.949', '0.707', '0.804'],
+  ['0.000', '0.894', '1.000', '0.665'],
+];
+export const cosHeat = [
+  [0.682, 0.226, 0.092, null],
+  [0.276, 0.448, 0.276, null],
+  [0.07, 0.416, 0.514, null],
+];
+export const dotRows = [
+  ['8', '2', '0', '0.000'],
+  ['4', '3', '1', '2.129'],
+  ['0', '6', '3', '6.003'],
+];
+export const dotHeat = [
+  [1.0, 0.0, 0.0, null],
+  [0.879, 0.119, 0.002, null],
+  [0.0, 0.998, 0.002, null],
+];
+export const diag = { '0,0': 'accent', '1,1': 'accent', '2,2': 'accent' };
+
+<ProblemMeta slug="info-nce" />
+
+## 题目
+
+写 `info_nce(queries, docs, tau)`，算一个 batch 的 InfoNCE 损失。
+
+- `queries` 和 `docs` 各有 n 个向量。第 i 条查询的正例是 `docs[i]`，其余 n − 1 篇文档是它的负例。
+
+计算步骤：
+
+1. 把每个向量除以自己的长度，变成长度为 1 的单位向量。
+2. 第 i 行的打分是 `logits[i][j] = cos(q_i, d_j) / tau`，j 取 0 到 n − 1。
+3. 对第 i 行做交叉熵，正确类别是第 i 列：`loss_i = −log( exp(logits[i][i]) / Σ_j exp(logits[i][j]) )`。
+4. 返回 n 行损失的平均值。
+
+- 输入保证是数字列表。结果允许 1e-9 的误差。
+- batch 为空、两边条数不同、向量维数不一致、出现零向量、`tau <= 0` 时，抛 `ValueError`（TypeScript 抛 `Error`）。
+
+## 样例
+
+| `queries` | `docs` | `tau` | 输出 |
+|---|---|---|---|
+| `[[3,0],[0,1]]` | `[[1,0],[0,2]]` | 1 | 0.3133 |
+| `[[3,0],[0,1]]` | `[[1,0],[0,2]]` | 0.5 | 0.1269 |
+| `[[2,0],[1,1],[0,3]]` | `[[4,0],[1,2],[0,1]]` | 0.5 | 0.6172 |
+
+- 样例 1、2：向量长度不同。漏了归一化、直接拿点积当分数，`tau = 1` 时会算出 0.0878，比正确答案还小。
+- 样例 3：文档 `[4,0]` 特别长。不归一化时它会抢走别的行的概率，损失变成 2.7105。
+
+## 思路
+
+每一行是一道 n 选 1 的分类题：归一化，算余弦除以 `tau`，再用 log-sum-exp 算交叉熵，最后对 n 行取平均。
+
+拿 q0 来说，它面对 d0、d1、d2 三个选项，要选出自己的那篇。softmax 把打分变成概率，交叉熵看正确选项拿到多少概率。训练时，正确文档被拉近，同 batch 的其他文档被推远。负例不用另外准备，别人的正例就是你的负例，这叫 **batch 内负例**。
+
+### 用样例 1 算一遍
+
+归一化：`[3,0]` 长度是 3，除完变成 `[1,0]`；`[0,2]` 长度是 2，除完变成 `[0,1]`。现在查询和文档都是 `[1,0]` 和 `[0,1]`。
+
+第 0 行：q0 = `[1,0]` 和 d0 的余弦是 1，和 d1 的余弦是 0。`tau = 1`，打分就是 `[1, 0]`。正确列是第 0 列，概率 e¹ / (e¹ + e⁰) = 2.718 / 3.718 = 0.7311，损失 −ln 0.7311 = 0.3133。
+
+第 1 行对称，打分 `[0, 1]`，损失也是 0.3133。两行平均，答案 0.3133。
+
+`tau` 叫温度。把它从 1 降到 0.5，打分整体乘 2，第 0 行变成 `[2, 0]`。正确列的概率从 0.7311 升到 e² / (e² + 1) = 0.8808，损失降到 0.1269。
+
+方向没变，只是分差放大了。温度越低，正例领先一点就能拿走大部分概率；负例和正例接近时，也会被罚得更重。
+
+<Figure caption="样例 1 第 0 行：温度从 1 降到 0.5，正确列的概率从 0.731 升到 0.881。">
+  <Bars
+    items={[
+      { label: 'τ=1 正确列', value: 0.731, tone: 'accent' },
+      { label: 'τ=1 另一列', value: 0.269 },
+      { label: 'τ=0.5 正确列', value: 0.881, tone: 'accent' },
+      { label: 'τ=0.5 另一列', value: 0.119 },
+    ]}
+    max={1}
+    digits={3}
+    barHeight={110}
+  />
+</Figure>
+
+### 为什么一定要先归一化
+
+不归一化时，样例 1 第 0 行的打分是 `[3·1, 0]` = `[3, 0]`，第 1 行是 `[0, 1·2]` = `[0, 2]`。两行损失分别是 ln(1 + e⁻³) = 0.0486 和 ln(1 + e⁻²) = 0.1269，平均 0.0878。
+
+向量方向和归一化后一样，损失却小了很多，只因为 `[3,0]`、`[0,2]` 比较长。模型会学着把向量拉长，而不是把方向调对。检索比的是方向，长度带来的分数是假的。
+
+样例 3 的问题更明显。下图左边是余弦相似度，右边是直接点积。
+
+- 格子里是相似度，底色深浅是除以 `tau = 0.5` 再做 softmax 后这一格的概率。
+- 对角线描边的是正例，琥珀色描边的是分数超过正例的负例。
+- 最右一列是这一行的损失。
+
+<Figure caption="样例 3。左：余弦相似度，每行最大值都在对角线上，平均损失 0.6172。右：点积，有两个负例超过正例，平均损失 2.7105。">
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">先归一化：余弦相似度</p>
+      <Grid rows={cosRows} rowHeaders={rowNames} colHeaders={heads} heat={cosHeat} tones={diag} cellWidth={58} />
+    </div>
+    <div style="margin-top: 0">
+      <p class="viz-row-label">不归一化：点积</p>
+      <Grid rows={dotRows} rowHeaders={rowNames} colHeaders={heads} heat={dotHeat} tones={{ ...diag, '1,0': 'warn', '2,1': 'warn' }} cellWidth={58} />
+    </div>
+  </div>
+</Figure>
+
+看 q1 这一行。q1 = `[1,1]`，正例 d1 = `[1,2]`，余弦 0.949，是这一行最大的。但 d0 = `[4,0]` 长度是 4，点积 1·4 + 1·0 = 4，比正例的 1·1 + 1·2 = 3 还大。softmax 把 0.879 的概率给了 d0，这一行损失 2.129。
+
+q2 = `[0,3]` 那一行也一样：d1 = `[1,2]` 点积 6，超过正例 d2 的 3，损失 6.003。
+
+### 算每一行时别让 exp 溢出
+
+如果 `tau = 0.001`，样例 1 的打分会变成 `[1000, 0]`。e 的 1000 次方远超浮点数上限：Python 的 `math.exp(1000)` 直接抛 `OverflowError`，JavaScript 得到 `Infinity`，`Infinity / Infinity` 又是 `NaN`。
+
+办法和 <ProblemLink slug="masked-softmax" /> 一样，每一行先减去这一行的最大值。`[1000, 0]` 减去 1000 变成 `[0, −1000]`，再算
+
+`log Σ exp(z_j) = peak + log Σ exp(z_j − peak)`
+
+这个量叫 log-sum-exp。第 i 行的损失就是它减去 `logits[i][i]`，不用先算出概率再取对数。<ProblemLink slug="assistant-only-loss" /> 里逐个 token 的交叉熵也是这个式子，只是“词表”换成了 batch 里的 n 篇文档。
+
+## 代码
+
+<Solution slug="info-nce" />
+
+两个版本逐行对应。TypeScript 版用 `Math.max(...logits)` 取行最大值，展开运算符在 n 达到几十万时可能超出调用栈，这里一行只有 batch 大小那么多个数，不会碰到。检查 `tau` 时 TypeScript 写成 `!(tau > 0)`，这样 `NaN` 也会被拦下；Python 的 `tau <= 0` 遇到 `nan` 返回 `False`，不会拦，题面保证输入是正常数字，所以两边对合法输入的行为一致。
+
+## 复杂度
+
+n 是 batch 里查询（也是文档）的条数，m 是向量维数。
+
+- **时间 O(n²m)**：一共 n 行、每行 n 个余弦，每个余弦要做 m 次乘加。归一化只要 O(nm)，被前者盖住。
+- **空间 O(nm)**：归一化后的 2n 个向量。每一行的打分用完就丢，只多占 O(n)。
+
+## 自测：两个容易写错的输入
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+样例 1、`tau = 1` 的正确答案是 0.3133。如果你得到 0.0878，说明没有归一化，直接用了点积。
+
+`queries = [[1,0],[0,1]]`、`docs = [[1,0],[0,1]]`、`tau = 0.001` 的正确答案是 ln(1 + e 的 −1000 次方)，在浮点数里就是 0。如果程序抛了 `OverflowError` 或者返回 `NaN`，是算 softmax 前忘了减去行最大值。
+</Aside>
+
+本页代码还测过：只有一对向量（分母里只剩正例，损失为 0）、两篇文档方向完全相同（每行损失都是 ln 2 = 0.6931）、随机 6 对 4 维向量与直接算概率的写法对拍，以及上面列出的几种非法输入。
+
+## 延伸：两条查询的正确文档是同一篇怎么办？
+
+比如 q0 和 q1 都在问退票规则，`docs[0]` 和 `docs[1]` 是同一篇文档。原题会让第 0 行把 `docs[1]` 当负例推远，可它就是正例本身。这叫**假负例**。
+
+算一个例子。`queries` 和 `docs` 都是 `[[1,0],[1,0],[0,1]]`，`tau = 1`。第 0 行打分 `[1, 1, 0]`，正确列和第 1 列一样高，正确列的概率只有 e / (2e + 1) = 0.4223，损失 ln(2e + 1) − 1 = 0.8620。第 1 行同理。第 2 行打分 `[0, 0, 1]`，损失 0.5514。平均 0.7585。
+
+这两行的损失有下限。d0 和 d1 一模一样，在第 0 行的分数永远相等，正确列的概率不会超过一半，损失降不到 ln 2 = 0.6931 以下。模型在追一个做不到的目标，梯度只会把表示弄乱。
+
+改法是给每篇文档带一个编号 `doc_ids`。算第 i 行时，编号和 `doc_ids[i]` 相同的其他列不放进分母，相当于把这些列的打分设成负无穷。其余部分照旧。
+
+上面的例子取 `doc_ids = [7, 7, 9]`。第 0 行只剩 d0 和 d2，打分 `[1, 0]`，损失回到 ln(1 + e⁻¹) = 0.3133；第 1 行同样 0.3133；第 2 行编号 9 只有自己，不受影响，仍是 0.5514。平均 0.3927。
+
+<Solution slug="info-nce" file="followup" />
+
+另一种做法是组 batch 时就保证同一篇文档不出现两次。两者可以一起用：采样时尽量去重，计算时再按编号屏蔽兜底。
+
+## 参考
+
+- [Representation Learning with Contrastive Predictive Coding（InfoNCE 的出处）](https://arxiv.org/abs/1807.03748)
+- [Dense Passage Retrieval for Open-Domain Question Answering（batch 内负例训练检索器）](https://arxiv.org/abs/2004.04906)
+- [A Simple Framework for Contrastive Learning of Visual Representations（余弦相似度加温度的写法）](https://arxiv.org/abs/2002.05709)
+- 相关题目：<ProblemLink slug="cosine-top-k" />、<ProblemLink slug="masked-softmax" />、<ProblemLink slug="assistant-only-loss" />

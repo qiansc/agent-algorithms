@@ -1,0 +1,170 @@
+---
+title: 两条回答哪条更符合偏好：DPO 损失
+description: 给定当前模型和参考模型对两条回答的逐 token 对数概率，按 DPO 公式算单对样本的损失，并写成不会溢出的形式。
+sidebar:
+  label: 46. DPO 损失
+  order: 46
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Grid, Bars } from '~/components/viz';
+import LossCurve from '~/components/figures/dpo-loss/LossCurve.astro';
+
+<ProblemMeta slug="dpo-loss" />
+
+## 题目
+
+写 `dpo_loss(policy_w, policy_l, ref_w, ref_l, beta)`，返回一对回答的 DPO 损失。
+
+- 同一个提示下有两条回答，标注更好的记作 w，较差的记作 l。
+- `policy_w`、`policy_l` 是当前模型对 w、l 的逐 token 对数概率；`ref_w`、`ref_l` 是参考模型的。
+- 对数取自然对数。列表里只有回答部分的 token，不含提示。
+- `beta` 是正数，下文写作 β。
+
+先算两个“偏好差”：
+
+- 当前模型的偏好差 = `sum(policy_w) - sum(policy_l)`
+- 参考模型的偏好差 = `sum(ref_w) - sum(ref_l)`
+
+记 `m = β × (当前模型的偏好差 - 参考模型的偏好差)`，返回 `-ln(sigmoid(m))`，其中 `sigmoid(m) = 1 / (1 + e^(-m))`。
+
+约定：
+
+- w 和 l 长度可以不同，但必须 `len(policy_w) == len(ref_w)`、`len(policy_l) == len(ref_l)`。
+- 四个列表都至少有一项，`beta > 0`。不满足时 Python 抛 `ValueError`，TypeScript 抛 `Error`。
+- 返回浮点数，误差不超过 1e-9。`m` 可能是几百甚至上千，结果不能溢出成 `inf`，也不能报错。
+
+## 样例
+
+| 调用 | 输出 |
+|---|---|
+| `dpo_loss([-1, -1], [-2, -2], [-1, -2], [-2, -2], 1)` | `0.313262` |
+| `dpo_loss([-0.5, -0.7, -0.3], [-2.0], [-0.6, -0.8, -0.4], [-1.5], 0.5)` | `0.513015` |
+| `dpo_loss([-1, -2], [-4], [-0.5, -1.5], [-3], 0.5)` | `0.693147` |
+| `dpo_loss([-500], [-1], [-1], [-1], 2)` | `998` |
+
+- 样例 2：w 有 3 个 token，l 只有 1 个。把求和改成按 token 取平均，会得到 0.554355。
+- 样例 3：两个偏好差相等，答案正好是 ln 2。
+- 样例 4：`m = -998`。先算 `sigmoid` 再取对数，Python 会在 `math.exp(998)` 上抛 `OverflowError`，TypeScript 返回 `Infinity`。
+
+## 思路
+
+把每个列表求和，得到两个模型的偏好差；两者相减乘 β 得到 `m`；最后用不溢出的写法算 `ln(1 + e^(-m))`。
+
+### 一条回答的对数概率是逐 token 相加
+
+一条回答的概率是每个 token 的条件概率连乘。取对数后变连加，所以列表求和就是整条回答的对数概率。
+
+样例 1：当前模型给 w 的是 −1 + (−1) = −2，给 l 的是 −2 + (−2) = −4。相差 2，表示当前模型认为 w 的概率是 l 的 e² ≈ 7.39 倍。这个 2 就是当前模型的偏好差。
+
+参考模型给 w 的是 −1 + (−2) = −3，给 l 的是 −4，偏好差是 1。
+
+<Figure caption="样例 1：两个偏好差是 2 和 1，差值 1 乘 β = 1，得到 `m = 1`。">
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">整条回答的对数概率</p>
+      <Grid
+        corner="模型"
+        rowHeaders={['当前模型', '参考模型']}
+        colHeaders={['w', 'l', '偏好差']}
+        rows={[
+          ['−1 + −1 = −2', '−2 + −2 = −4', '2'],
+          ['−1 + −2 = −3', '−2 + −2 = −4', '1'],
+        ]}
+        tones={{ '0,2': 'accent', '1,2': 'accent' }}
+      />
+    </div>
+    <div>
+      <p class="viz-row-label">两个偏好差，以及它们的差</p>
+      <Bars
+        items={[
+          { label: '当前', value: 2, tone: 'accent' },
+          { label: '参考', value: 1, tone: 'default' },
+          { label: '差值', value: 1, tone: 'strong' },
+        ]}
+        max={2}
+        barHeight={110}
+      />
+    </div>
+  </div>
+</Figure>
+
+### 为什么要减去参考模型
+
+参考模型通常是训练开始前的模型。样例 1 里它本来就偏向 w 1 个单位。当前模型偏向 w 2 个单位，多出来的 1 个单位才是训练带来的。DPO 只奖励这部分，所以 `m = β × (2 - 1) = 1`。
+
+DPO 的原目标是“提高奖励，同时别离参考模型太远”，β 控制“别离太远”。在损失里，β 放大差值。β 越大，偏好差多拉开一点，损失就降得很快，模型不用偏离参考模型太多。
+
+### 把差值变成损失
+
+`sigmoid(1) = 1 / (1 + e^(-1)) ≈ 0.731059`，可以读成“模型判断 w 更好”的概率。损失是它的负对数：`-ln(0.731059) ≈ 0.313262`。
+
+按 `m` 分三种情况：
+
+- `m = 0`：两个偏好差一样。`sigmoid(0) = 0.5`，损失是 ln 2 ≈ 0.693147，**和 β 无关**。样例 3 就是这样：当前模型 −3 对 −4，参考模型 −2 对 −3，偏好差都是 1。
+- `m > 0`：比参考模型更偏向 w，损失小于 ln 2，越往右越接近 0。
+- `m < 0`：反而更偏向 l，损失大于 ln 2。把样例 1 的 w 和 l 对调，`m = -1`，损失是 1.313262。
+
+损失对 `m` 的导数是 `-sigmoid(-m)`。`m = 1` 时是 −0.269，`m = -1` 时是 −0.731。偏错得越多，推力越大。
+
+<Figure caption="损失 `ln(1 + e^(-m))`：右侧趋近 0，左侧贴着直线 `−m` 上升，`m = −998` 时是 998。">
+  <LossCurve />
+</Figure>
+
+### 不溢出的写法
+
+`-ln(sigmoid(m))` 化简后是 `ln(1 + e^(-m))`。`m` 很负时，`e^(-m)` 会溢出。拆成两种情况：
+
+- `m ≥ 0`：`e^(-m)` 不超过 1，直接算 `ln(1 + e^(-m))`。
+- `m < 0`：先提出 `e^(-m)`，得到 `-m + ln(1 + e^m)`，这里的 `e^m` 小于 1。
+
+合起来就是 `max(-m, 0) + log1p(exp(-|m|))`。指数里永远是非正数，不会溢出。`log1p(x)` 直接算 `ln(1 + x)`，`x` 很小时比先做加法更准。样例 4：`m = 2 × ((−500 − (−1)) − (−1 − (−1))) = −998`，代入得 998 + ln(1 + e^(−998)) = 998。
+
+## 代码
+
+<Solution slug="dpo-loss" />
+
+两个版本逐行对应。Python 在 `math.exp` 溢出时抛 `OverflowError`，JavaScript 的 `Math.exp` 则静默返回 `Infinity`；本页的写法只对非正数取指数，两种语言都碰不到这个差异。求和都是从左到右逐项相加，所以两边的浮点结果一致。
+
+## 复杂度
+
+L 是四个列表的长度之和。
+
+- **时间 O(L)**：每个对数概率只被加一次，之后是常数次运算。
+- **空间 O(1)**：只存四个和与 `m`，不复制列表。
+
+## 自测：算偏好差时最容易错的三处
+
+<Aside type="caution" title="先手算，再对答案">
+第三个样例的答案是 ln 2 ≈ 0.693147。如果你得到 0.474077，说明忘了减参考模型的偏好差：只用当前模型的差 1，乘上 β = 0.5 得到 0.5，`ln(1 + e^(-0.5)) = 0.474077`。
+
+第一个样例的答案是 0.313262。如果你得到 1.313262，是把 w 和 l 写反了，`m` 的符号反了。
+
+第二个样例的答案是 0.513015：当前模型 −1.5 对 −2.0，参考模型 −1.8 对 −1.5，`m = 0.5 × (0.5 − (−0.3)) = 0.4`。如果你得到 0.554355，是对每条回答按 token 取了平均：平均后两个偏好差变成 1.5 和 0.9，`m` 变成 0.3。
+</Aside>
+
+长度不同时不能擅自取平均。公式用的是整条回答的对数概率，回答越长对数概率越低，这是定义的一部分。改成平均就换了优化目标。
+
+## 延伸：只有奖励模型的打分，损失怎么写？
+
+假设不给对数概率，而是奖励模型直接给两条回答打分 `r_w` 和 `r_l`，要训练这个奖励模型。常用 Bradley–Terry 模型：w 胜过 l 的概率是 `sigmoid(r_w - r_l)`，损失取负对数 `-ln(sigmoid(r_w - r_l))`。
+
+原解法后半段不用改，`m` 换成 `r_w - r_l`，不溢出的那一行原样复用。
+
+两种损失形状相同。DPO 把 `β × (当前模型对数概率 - 参考模型对数概率)` 当成一条回答的“隐式奖励”。样例 1 里，w 的隐式奖励是 1 × (−2 − (−3)) = 1，l 的是 1 × (−4 − (−4)) = 0。代入 Bradley–Terry 损失，得到的还是 0.313262。
+
+<Solution slug="dpo-loss" file="followup" />
+
+区别在于训练谁。奖励模型损失训练一个单独的打分网络，之后还要用强化学习按分数优化语言模型。DPO 用语言模型自己的对数概率当奖励，直接训练语言模型，省掉了奖励模型和强化学习阶段。
+
+隐式奖励里还有一项只和提示有关的常数。同一个提示下 w 和 l 相减时它正好抵消，所以只需要两条回答。
+
+## 参考
+
+- [Rafailov et al. Direct Preference Optimization: Your Language Model is Secretly a Reward Model（DPO 原论文，损失见式 7）](https://arxiv.org/abs/2305.18290)
+- [Ouyang et al. Training language models to follow instructions with human feedback（奖励模型的成对损失见式 1）](https://arxiv.org/abs/2203.02155)
+- [Bradley & Terry. Rank Analysis of Incomplete Block Designs（1952）](https://doi.org/10.2307/2334029)
+- 同样在训练里用到的损失：<ProblemLink slug="ppo-clip" />、<ProblemLink slug="grpo-advantage" />；数值稳定的指数运算：<ProblemLink slug="masked-softmax" />

@@ -1,0 +1,305 @@
+{
+ "python": "run_checkout",
+ "typescript": "runCheckout",
+ "kind": "function",
+ "cases": [
+  {
+   "name": "一次成功",
+   "args": [
+    [
+     "ok"
+    ],
+    3,
+    true
+   ],
+   "expected": {
+    "state": "placed",
+    "order_id": "o1",
+    "orders_created": 1,
+    "trace": [
+     "place:ok"
+    ]
+   }
+  },
+  {
+   "name": "正文样例：订单建好但响应丢了，查到后不再提交",
+   "args": [
+    [
+     "lost",
+     "ok"
+    ],
+    3,
+    true
+   ],
+   "expected": {
+    "state": "placed",
+    "order_id": "o1",
+    "orders_created": 1,
+    "trace": [
+     "place:timeout",
+     "lookup:found"
+    ]
+   }
+  },
+  {
+   "name": "正文样例：同样的故障，错误做法下出两单",
+   "args": [
+    [
+     "lost",
+     "ok"
+    ],
+    3,
+    false
+   ],
+   "expected": {
+    "state": "placed",
+    "order_id": "o2",
+    "orders_created": 2,
+    "trace": [
+     "place:timeout",
+     "place:ok"
+    ]
+   }
+  },
+  {
+   "name": "请求没到服务端：查无后用同一个 key 重发",
+   "args": [
+    [
+     "timeout",
+     "ok"
+    ],
+    3,
+    true
+   ],
+   "expected": {
+    "state": "placed",
+    "order_id": "o1",
+    "orders_created": 1,
+    "trace": [
+     "place:timeout",
+     "lookup:none",
+     "place:ok"
+    ]
+   }
+  },
+  {
+   "name": "服务端忙：不用查，直接重试",
+   "args": [
+    [
+     "busy",
+     "busy",
+     "ok"
+    ],
+    3,
+    true
+   ],
+   "expected": {
+    "state": "placed",
+    "order_id": "o1",
+    "orders_created": 1,
+    "trace": [
+     "place:busy",
+     "place:busy",
+     "place:ok"
+    ]
+   }
+  },
+  {
+   "name": "请求迟到：查无之后才落地，同一个 key 挡住第二单",
+   "args": [
+    [
+     "late",
+     "ok"
+    ],
+    3,
+    true
+   ],
+   "expected": {
+    "state": "placed",
+    "order_id": "o1",
+    "orders_created": 1,
+    "trace": [
+     "place:timeout",
+     "lookup:none",
+     "place:ok"
+    ]
+   }
+  },
+  {
+   "name": "请求迟到，错误做法下出两单",
+   "args": [
+    [
+     "late",
+     "ok"
+    ],
+    3,
+    false
+   ],
+   "expected": {
+    "state": "placed",
+    "order_id": "o2",
+    "orders_created": 2,
+    "trace": [
+     "place:timeout",
+     "place:ok"
+    ]
+   }
+  },
+  {
+   "name": "三次都超时：保持 unknown 交给对账",
+   "args": [
+    [
+     "timeout",
+     "timeout",
+     "timeout"
+    ],
+    3,
+    true
+   ],
+   "expected": {
+    "state": "unknown",
+    "order_id": null,
+    "orders_created": 0,
+    "trace": [
+     "place:timeout",
+     "lookup:none",
+     "place:timeout",
+     "lookup:none",
+     "place:timeout",
+     "lookup:none"
+    ]
+   }
+  },
+  {
+   "name": "最后一次响应丢了：收尾时查到",
+   "args": [
+    [
+     "timeout",
+     "timeout",
+     "lost"
+    ],
+    3,
+    true
+   ],
+   "expected": {
+    "state": "placed",
+    "order_id": "o1",
+    "orders_created": 1,
+    "trace": [
+     "place:timeout",
+     "lookup:none",
+     "place:timeout",
+     "lookup:none",
+     "place:timeout",
+     "lookup:found"
+    ]
+   }
+  },
+  {
+   "name": "门店拒单：不重试",
+   "args": [
+    [
+     "reject",
+     "ok"
+    ],
+    3,
+    true
+   ],
+   "expected": {
+    "state": "rejected",
+    "order_id": null,
+    "orders_created": 0,
+    "trace": [
+     "place:rejected"
+    ]
+   }
+  },
+  {
+   "name": "一直忙：明确失败",
+   "args": [
+    [
+     "busy",
+     "busy",
+     "busy"
+    ],
+    3,
+    true
+   ],
+   "expected": {
+    "state": "failed",
+    "order_id": null,
+    "orders_created": 0,
+    "trace": [
+     "place:busy",
+     "place:busy",
+     "place:busy"
+    ]
+   }
+  },
+  {
+   "name": "只允许 1 次",
+   "args": [
+    [
+     "lost"
+    ],
+    1,
+    true
+   ],
+   "expected": {
+    "state": "placed",
+    "order_id": "o1",
+    "orders_created": 1,
+    "trace": [
+     "place:timeout",
+     "lookup:found"
+    ]
+   }
+  },
+  {
+   "name": "重试次数为 0",
+   "args": [
+    [
+     "ok"
+    ],
+    0,
+    true
+   ],
+   "raises": true
+  },
+  {
+   "name": "8 次随机故障",
+   "args": [
+    [
+     "busy",
+     "busy",
+     "busy",
+     "timeout",
+     "timeout",
+     "busy",
+     "timeout",
+     "ok"
+    ],
+    8,
+    true
+   ],
+   "expected": {
+    "state": "placed",
+    "order_id": "o1",
+    "orders_created": 1,
+    "trace": [
+     "place:busy",
+     "place:busy",
+     "place:busy",
+     "place:timeout",
+     "lookup:none",
+     "place:timeout",
+     "lookup:none",
+     "place:busy",
+     "place:timeout",
+     "lookup:none",
+     "place:ok"
+    ]
+   }
+  }
+ ]
+}

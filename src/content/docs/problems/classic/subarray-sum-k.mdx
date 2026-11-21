@@ -1,0 +1,184 @@
+---
+title: 连续几步的总奖励正好是 k，有多少种截法
+description: 数出和恰好为 k 的连续片段个数，奖励可以是负数：前缀和加计数表，一趟扫描。
+sidebar:
+  label: 53. 和为 k 的连续片段数
+  order: 53
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Grid, Stepper, Step } from '~/components/viz';
+
+export const rewards = [1, -1, 1, 0];
+export const K = 1;
+export const frames = (() => {
+  const out = [];
+  const count = new Map([[0, 1]]);
+  const prefix = [0];
+  let total = 0;
+  let answer = 0;
+  const table = () => [...count].map(([s, n]) => [s, n]);
+  out.push({
+    i: null, prefix: [...prefix], total, answer, rows: table(), tableTones: {}, prefixTones: { 0: 'strong' }, found: [],
+    caption: '还没读奖励，累计值是 0。表里先登记一次 `0`，代表起点在最开头。`answer = 0`。',
+  });
+  const captions = [
+    '读第 0 步的 `1`，`total = 1`，需要 `1 − 1 = 0`。表里 `0` 有 1 次，多 1 段：第 0 步的 `[1]`。`answer = 1`。然后登记 `1`。',
+    '读第 1 步的 `−1`，`total = 0`，需要 `0 − 1 = −1`。表里没有，`answer` 仍是 1。登记 `0`，次数从 1 变成 2。',
+    '读第 2 步的 `1`，`total = 1`，需要 `0`。表里 `0` 有 2 次（最开头、第 1 步之后），多 2 段：第 0–2 步和第 2 步。`answer = 3`。',
+    '读第 3 步的 `0`，`total` 还是 1，`0` 仍有 2 次。多 2 段：第 0–3 步和第 2–3 步。四步读完，`answer = 5`。',
+  ];
+  rewards.forEach((r, i) => {
+    total += r;
+    const need = total - K;
+    const hits = prefix.map((p, j) => (p === need ? j : -1)).filter((j) => j >= 0);
+    answer += count.get(need) ?? 0;
+    prefix.push(total);
+    count.set(total, (count.get(total) ?? 0) + 1);
+    const rows = table();
+    const tableTones = {};
+    rows.forEach(([s], ri) => {
+      if (s === need) { tableTones[`${ri},0`] = 'accent'; tableTones[`${ri},1`] = 'accent'; }
+      if (s === total) { tableTones[`${ri},0`] = 'strong'; tableTones[`${ri},1`] = 'strong'; }
+    });
+    const prefixTones = { [i + 1]: 'strong' };
+    hits.forEach((j) => (prefixTones[j] = 'accent'));
+    out.push({
+      i, prefix: [...prefix], total, answer, rows, tableTones, prefixTones,
+      found: hits.map((j) => [j, i]),
+      caption: captions[i],
+    });
+  });
+  return out;
+})();
+export const zeroRows = {
+  right: [['第 0 步', 0, '1 次', 1], ['第 1 步', 0, '2 次', 3]],
+  wrong: [['第 0 步', 0, '2 次', 2], ['第 1 步', 0, '3 次', 5]],
+};
+
+<ProblemMeta slug="subarray-sum-k" />
+
+## 题目
+
+给一个整数列表 `rewards` 和一个整数 `k`，数出和正好等于 `k` 的连续非空片段有多少个。`rewards` 是一条 Agent 轨迹每一步的奖励，可以是负数。
+
+- 片段按起止位置区分：数值相同、位置不同的两段分别计数。
+- `rewards` 可以为空，这时答案是 0。
+- `k` 可以是 0 或负数。
+- `rewards` 里出现小数，或者 `k` 不是整数，视为非法输入，抛出 `ValueError`（TypeScript 里抛 `Error`）。
+
+## 样例
+
+| `rewards` | `k` | 输出 | 说明 |
+|---|---|---|---|
+| `[1, -1, 1, 0]` | 1 | 5 | 见下文逐步推导 |
+| `[0, 0]` | 0 | 3 | `[0]` 两个，加上 `[0, 0]` |
+| `[4, -1]` | 3 | 1 | 只有整段 `[4, -1]` |
+
+第一个样例的 5 段是：第 0 步、第 2 步、第 0–2 步、第 2–3 步、第 0–3 步（步数从 0 数起，两端都含）。
+
+第二个样例抓“先登记、后查表”的写法，它会得到 5。第三个样例抓滑动窗口：读到 4 时和已超过 3，窗口扔掉 4，后面的 −1 凑不回来，得到 0。奖励有负数时，“和超过 k 就缩窗口”不成立。
+
+## 思路
+
+边扫边算累计值（前缀和），用一张表记每个累计值出现过几次。读到某一步时，表里有几个累计值等于 `total − k`，以这一步结尾的合格片段就有几段。扫一遍，O(n)。
+
+暴力做法枚举起点和终点，边扩展终点边累加，要 O(n²)。
+
+前缀和 `P[j]` 是前 j 步奖励的总和，`P[0] = 0`。`[1, -1, 1, 0]` 的 `P` 依次是 0、1、0、1、1。第 i 步到第 j − 1 步的和是 `P[j] − P[i]`，例如第 2–3 步的和是 `P[4] − P[2] = 1 − 0 = 1`。
+
+读到某一步时累计值是 `total`。要让以这里结尾的一段和为 k，起点前的累计值就必须是 `total − k`。比如累计到这里是 1，要截出 1，起点前的累计值就得是 0。过去有几个位置的累计值是 0，就有几个合适的起点。
+
+所以边走边维护计数表 `count`。每读一步，先用 `total − k` 查表，把次数加进答案，再登记 `total`。开头的 `P[0] = 0` 要提前登记一次，否则从第 0 步开始的片段数不到。
+
+<Stepper title="rewards = [1, −1, 1, 0]，k = 1">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div style="min-width: 240px">
+          <p class="viz-row-label">奖励（找到的片段）</p>
+          <ArrayCells
+            values={rewards}
+            tones={f.i === null ? [] : rewards.map((_, j) => (j === f.i ? 'strong' : j < f.i ? 'done' : 'default'))}
+            ranges={f.found.map(([a, b], n) => ({ from: a, to: b, label: `和 = ${K}`, side: n === 0 ? 'top' : 'bottom', tone: 'accent' }))}
+            cell={46}
+          />
+          <div style="margin-top: 0.8rem">
+            <p class="viz-row-label">前缀和 P（下标 j 表示前 j 步）</p>
+            <ArrayCells values={f.prefix} tones={f.prefixTones} cell={46} />
+          </div>
+        </div>
+        <div>
+          <p class="viz-row-label">计数表 count</p>
+          <Grid colHeaders={['累计值', '次数']} rows={f.rows} tones={f.tableTones} />
+          <div style="margin-top: 0.6rem">
+            <p class="viz-row-label">answer = {f.answer}</p>
+          </div>
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+图里深色的前缀和是当前的 `total`，浅色带边框的是和 `total − k` 相等的那些旧前缀和，每一个都对应一个起点。计数表里浅色那行是查到的次数，深色那行是这一步登记的。
+
+顺序不能反过来。`k = 0` 时，`total − k` 就是 `total`。先登记的话，刚写进去的这一次也会被查到，等于让终点和自己配对，多数一段长度为 0 的片段。题目要求非空，它不该算。
+
+<Figure caption="`rewards = [0, 0]`、`k = 0`。左边先查后记，答案 3；右边先记后查，每步都多查到 1 次，答案变成 5。">
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">先查表，再登记（正确）</p>
+      <Grid colHeaders={['读到', 'total', '查到 0', 'answer']} rows={zeroRows.right} />
+    </div>
+    <div>
+      <p class="viz-row-label">先登记，再查表（错误）</p>
+      <Grid colHeaders={['读到', 'total', '查到 0', 'answer']} rows={zeroRows.wrong} tones={{ '0,2': 'warn', '1,2': 'warn', '1,3': 'warn' }} />
+    </div>
+  </div>
+</Figure>
+
+`k ≠ 0` 时两种顺序结果一样，所以只有 `k = 0` 的测试能抓到这个错误。
+
+## 代码
+
+<Solution slug="subarray-sum-k" />
+
+Python 的整数没有上限。TypeScript 的 `number` 是双精度浮点，只有在 `Number.MAX_SAFE_INTEGER`（约 9 × 10¹⁵）以内整数才精确；前缀和超过这个范围时，`Map` 的键会把不同的和当成同一个，需要改用 `BigInt`。`Map` 用 SameValueZero 比较键，`0` 和 `-0` 算同一个键，这里不会出问题。
+
+## 复杂度
+
+n 是 `rewards` 的长度。
+
+- **时间 O(n)**：每一步一次查表、一次写表，哈希表的操作平均 O(1)。
+- **空间 O(n)**：计数表里最多有 n + 1 种不同的累计值。
+
+## 自测：两处顺序和初值
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`[0, 0]`、`k = 0` 的正确答案是 3。如果你的代码返回 5，是先把 `total` 登记进表、再查 `total − k`，把空片段也数进去了。
+
+`[1, -1, 1, 0]`、`k = 1` 的正确答案是 5。如果你得到 2，是计数表一开始没有登记 `{0: 1}`：所有从第 0 步开始的片段（`[1]`、`[1, -1, 1]`、`[1, -1, 1, 0]`）都漏掉了。
+</Aside>
+
+本页代码对上面三个样例，以及空列表、单个元素、全是 0（`[0, 0, 0]` 有 6 段）、正负抵消、找不到任何一段，和一组与 O(n²) 暴力解对拍的 40 个随机数都跑过测试。
+
+## 延伸：要和为 k 的最长片段有多长？
+
+不再数个数，改成问：和正好为 k 的连续片段里，最长的有几步？找不到就返回 0。
+
+前缀和的思路照用。以第 i 步结尾、和为 k 的片段，起点前的累计值仍然是 `total − k`；只是现在想让片段最长，起点要尽量靠左。所以表里不再记“出现过几次”，改记“这个累计值**最早**出现在哪一步之后”。
+
+只改两处：初值从 `{0: 1}` 换成 `{0: -1}`，表示“一步都还没走”时累计值是 0；登记时只在这个累计值第一次出现时写入，之后不再覆盖。
+
+<Solution slug="subarray-sum-k" file="followup" />
+
+`[1, -1, 1, 0]`、`k = 1` 的答案是 4：读到第 3 步时 `total = 1`，需要的 0 最早出现在 −1（开头），长度 3 − (−1) = 4，也就是整个列表。如果每次都覆盖成最新位置，第 1 步之后 `0` 的记录被改成 1，最后算出来的是 3 − 1 = 2，变成了第 2–3 步那一段。
+
+## 参考
+
+- [力扣 560 · 和为 K 的子数组](https://leetcode.cn/problems/subarray-sum-equals-k/)
+- [力扣 325 · 和等于 k 的最长子数组长度](https://leetcode.cn/problems/maximum-size-subarray-sum-equals-k/)
+- 奖励全是非负数时可以用滑动窗口，对照：<ProblemLink slug="longest-unique-substring" />、<ProblemLink slug="shortest-evidence-window" />

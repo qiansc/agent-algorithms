@@ -1,0 +1,19 @@
+{
+  "python": "bm25",
+  "typescript": "bm25",
+  "kind": "function",
+  "tol": 1e-09,
+  "cases": [
+    {"name": "样例：d0 > d2 > d1", "args": [["cat sat mat", "dog sat log", "cat cat ran far away"], "cat sat"], "expected": [1.0155435560488217, 0.5077717780244109, 0.5862931869972579]},
+    {"name": "b = 0：不惩罚长度", "args": [["cat sat mat", "dog sat log", "cat cat ran far away"], "cat sat", 1.2, 0], "expected": [0.9400072584914713, 0.47000362924573563, 0.6462549902128865]},
+    {"name": "查询词重复只算一次", "args": [["cat sat mat", "dog sat log", "cat cat ran far away"], "cat cat sat"], "expected": [1.0155435560488217, 0.5077717780244109, 0.5862931869972579]},
+    {"name": "k1 = 0：只看是否出现", "args": [["cat sat mat", "dog sat log", "cat cat ran far away"], "cat sat", 0, 0.75], "expected": [0.9400072584914713, 0.47000362924573563, 0.47000362924573563]},
+    {"name": "查询词都不在文档里", "args": [["cat sat mat", "dog sat log", "cat cat ran far away"], "bird"], "expected": [0.0, 0.0, 0.0]},
+    {"name": "空查询", "args": [["cat sat mat", "dog sat log", "cat cat ran far away"], ""], "expected": [0.0, 0.0, 0.0]},
+    {"name": "没有文档", "args": [[], "cat"], "expected": []},
+    {"name": "所有文档都是空串", "args": [["", ""], "cat"], "expected": [0.0, 0.0]},
+    {"name": "含空文档、多余空格", "args": [["  cat  ", "", "cat dog"], "cat"], "expected": [0.47000362924573563, 0.0, 0.3335509626905221]},
+    {"name": "b 超出范围", "args": [["cat sat mat", "dog sat log", "cat cat ran far away"], "cat", 1.2, 1.5], "raises": true},
+    {"name": "12 篇随机文档、3 个查询词", "args": [["index memory query memory memory plan token agent rank search plan agent", "tool query rank search vector", "tool cache search agent memory search vector index call vector call", "call cache cache rank", "call agent agent search search", "call index query search token", "call memory search vector index agent", "vector call call index tool query index cache", "agent cache plan memory query tool index query index rank memory query", "rank rank memory call agent", "agent memory query vector agent token vector", "vector cache agent rank agent memory call cache"], "search rank cache"], "expected": [1.099945034068897, 1.5937445861805868, 1.549704035675425, 2.2076282158933482, 1.0467495644025384, 0.7968722930902934, 0.7488465075692267, 0.8293573951553502, 1.2324928651786877, 1.0467495644025384, 0.0, 1.8215825285279093]}
+  ]
+}

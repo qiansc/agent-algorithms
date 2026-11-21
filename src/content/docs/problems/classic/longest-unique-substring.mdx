@@ -1,0 +1,146 @@
+---
+title: 最长无重复子串
+description: 在字符串里找一段连续、且没有重复字符的最长片段，用滑动窗口加“上次出现位置”表做到 O(n)。
+sidebar:
+  label: 50. 最长无重复子串
+  order: 50
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Grid, Stepper, Step } from '~/components/viz';
+
+export const word = ['a', 'b', 'b', 'a'];
+export const frames = [
+  {
+    tones: [], pointers: [{ at: 0, label: 'left' }], range: null, last: [],
+    caption: '窗口为空，`left = 0`，`last` 表为空，`best = 0`。',
+  },
+  {
+    tones: ['strong'], pointers: [{ at: 0, label: 'left' }, { at: 0, label: 'right', side: 'bottom' }],
+    range: [0, 0, '长度 1'], last: [['a', 0]],
+    caption: '读到下标 0 的 `a`。表里没有 `a`，`left` 不动。窗口是 `a`，`best = 1`。记下 `a → 0`。',
+  },
+  {
+    tones: ['accent', 'strong'], pointers: [{ at: 0, label: 'left' }, { at: 1, label: 'right', side: 'bottom' }],
+    range: [0, 1, '长度 2'], last: [['a', 0], ['b', 1]],
+    caption: '读到下标 1 的 `b`。表里没有 `b`，窗口扩成 `ab`，`best = 2`。记下 `b → 1`。',
+  },
+  {
+    tones: ['muted', 'muted', 'strong'], pointers: [{ at: 2, label: 'left' }, { at: 2, label: 'right', side: 'bottom' }],
+    range: [2, 2, '长度 1'], last: [['a', 0], ['b', 2]],
+    caption: '读到下标 2 的 `b`。上一个 `b` 在下标 1，还在窗口里，`left` 跳到 1 + 1 = 2。窗口只剩 `b`，`best` 仍是 2。`b` 更新为 2。',
+  },
+  {
+    tones: ['muted', 'muted', 'accent', 'strong'], pointers: [{ at: 2, label: 'left' }, { at: 3, label: 'right', side: 'bottom' }],
+    range: [2, 3, '长度 2'], last: [['a', 3], ['b', 2]],
+    caption: '读到下标 3 的 `a`。上一个 `a` 在下标 0，已在窗口外。0 + 1 = 1，`max(2, 1) = 2`，`left` 不动。窗口是 `ba`，长度 2。',
+  },
+  {
+    tones: ['muted', 'warn', 'warn', 'strong'], pointers: [{ at: 1, label: 'left?', tone: 'warn' }, { at: 3, label: 'right', side: 'bottom' }],
+    range: [1, 3, '长度 3？', 'warn'], last: [['a', 3], ['b', 2]],
+    caption: '错误写法：漏掉 `max`，直接写 `left = last[ch] + 1`。`left` 从 2 退回 1，窗口 `bba` 里有两个 `b`，长度却算成 3。',
+  },
+];
+
+<ProblemMeta slug="longest-unique-substring" />
+
+## 题目
+
+给一个字符串 `s`，返回其中最长的一段连续、且没有重复字符的子串的长度。
+
+- 字符串可以含中文、空格和 emoji，一个 emoji 算一个字符。
+- 空串返回 0。
+
+## 样例
+
+| 输入 | 输出 | 说明 |
+|---|---|---|
+| `"abba"` | `2` | `ab` 或 `ba`；`bba`、`abba` 都有重复 |
+| `"查票查价"` | `3` | 最长的一段是 `票查价` |
+| `""` | `0` | 空串 |
+
+`"abba"` 用来抓一个常见错误：读到最后一个 `a` 时，左边界往回退。
+
+## 思路
+
+用一个窗口从左往右扫，再用一张表 `last` 记住每个字符上次出现的下标。读到重复字符时，左边界跳到上次位置的后一格，而且只往右跳，不往回退。扫一遍就够，O(n)。
+
+暴力做法是枚举起点和终点，再检查有没有重复，要 O(n³)。
+
+换个问法：如果这一段必须在下标 `right` 结束，它最早能从哪里开始？把这个起点叫 `left`，`s[left..right]` 就是以 `right` 结尾的最长合法片段。每个 `right` 都算一次长度，取最大值就是答案。`left` 和 `right` 都只往右走，这种做法叫滑动窗口。
+
+`right` 右移一格、读进字符 `ch` 时，只有窗口里已经有 `ch` 才会出问题。查 `last[ch]` 就能判断：
+
+- 表里没有 `ch`，或 `last[ch] < left`：上一个 `ch` 在窗口外，`left` 不动。
+- `last[ch] >= left`：窗口里有旧的 `ch`，`left` 挪到 `last[ch] + 1`。
+
+两条合成一句：`left = max(left, last[ch] + 1)`。`abba` 考的就是这个 `max`。
+
+<Stepper title="用 abba 走一遍">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div>
+          <p class="viz-row-label">字符串与窗口</p>
+          <ArrayCells
+            values={word}
+            tones={f.tones}
+            pointers={f.pointers}
+            ranges={f.range ? [{ from: f.range[0], to: f.range[1], label: f.range[2], side: 'top', tone: f.range[3] ?? 'accent' }] : []}
+          />
+        </div>
+        <div>
+          <p class="viz-row-label">last 表</p>
+          <Grid colHeaders={['字符', '上次位置']} rows={f.last.length ? f.last : [['—', '—']]} />
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+`left` 不会往左退。它表示“以当前 `right` 结尾时最早的合法起点”。`right` 多走一格，窗口只多一个字符，原来不合法的起点不会因此变合法，所以 `left` 只会不变或变大。从 2 退回 1，等于说 `bba` 合法，可它有两个 `b`。
+
+`last[ch] = right` 要放在算完 `left` **之后**。先写表的话，查到的是刚写进去的 `right`，`left` 会跳到 `right + 1`，窗口变空。
+
+## 代码
+
+<Solution slug="longest-unique-substring" />
+
+两个版本的写法一一对应。TypeScript 版多了一步 `Array.from(s)`：JavaScript 的字符串按 UTF-16 编码单元计数，一个 😀 占两个单元，直接用下标遍历会把它拆成两半，长度也会算错。`Array.from` 按 Unicode 码点切分，和 Python 的行为一致。
+
+## 复杂度
+
+n 是字符串的字符数，u 是其中不同字符的个数。
+
+- **时间 O(n)**：`right` 从头走到尾，每一步只做一次字典查询、一次写入和两次 `max`。`left` 虽然会跳，但跳跃是一步赋值，不是逐格移动。
+- **空间 O(u)**：`last` 表里每种字符只占一项。全是小写英文字母时最多 26 项，含中文时上限就是字符串里出现过的字的种类数。
+
+## 自测：两个容易写错的输入
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`"abba"` 的正确答案是 2。如果你的代码返回 3，十有八九是少了 `max`，左边界往回退了。
+
+`"dvdf"` 的正确答案是 3（`vdf`）。读到第二个 `d` 时，`left` 应该跳到 1，而不是清空窗口从 3 重新开始。如果你的代码返回 2，说明遇到重复时把整个窗口都丢掉了。
+</Aside>
+
+本页代码对这两个输入，以及空串、单个空格、全相同字符、带 emoji 的字符串都跑过测试。
+
+## 延伸：要返回子串本身呢？
+
+题目改成返回最长的那一段，并列时取最靠左的一段。
+
+`best` 改为同时记下起点 `start`，只在长度**严格变长**时更新，这样并列时保留的是先出现的那段。循环结束后切一次：`s[start : start + best]`。
+
+不要每次破纪录都把当前子串复制一份。字符串长 n 时，破纪录最多 n 次，每次复制最长 O(n)，最坏会变成 O(n²)。只记两个整数、最后切一次，总复杂度仍是 O(n)。
+
+<Solution slug="longest-unique-substring" file="followup" />
+
+`"abba"` 的结果是 `"ab"`：`ab` 和 `ba` 一样长，`ba` 出现时长度没有严格变长，起点不更新。
+
+## 参考
+
+- [力扣 3 · 无重复字符的最长子串](https://leetcode.cn/problems/longest-substring-without-repeating-characters/)
+- 同一类“窗口只往右走”的题：<ProblemLink slug="shortest-evidence-window" />、<ProblemLink slug="sliding-window-rate-limit" />

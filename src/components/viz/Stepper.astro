@@ -1,0 +1,88 @@
+---
+// 分步播放器。每个 <Step> 是一帧：图 + 一句说明。
+// 没有脚本时所有帧依次展开；开启“减少动态效果”时不做淡入。
+interface Props {
+  title?: string;
+  interval?: number;
+}
+
+const { title, interval = 2200 } = Astro.props;
+---
+
+<algo-stepper class="stepper" data-interval={interval}>
+  {title && <p class="stepper-title">{title}</p>}
+  <div class="stepper-frames"><slot /></div>
+  <div class="stepper-bar" hidden>
+    <button type="button" data-act="prev" aria-label="上一步">‹ 上一步</button>
+    <span class="stepper-count" aria-live="polite"></span>
+    <button type="button" data-act="next" aria-label="下一步">下一步 ›</button>
+    <button type="button" data-act="play" class="stepper-play">自动播放</button>
+  </div>
+</algo-stepper>
+
+<script>
+  class AlgoStepper extends HTMLElement {
+    private steps: HTMLElement[] = [];
+    private index = 0;
+    private timer: number | undefined;
+
+    connectedCallback() {
+      this.steps = Array.from(this.querySelectorAll<HTMLElement>(':scope > .stepper-frames > [data-step]'));
+      const bar = this.querySelector<HTMLElement>('.stepper-bar');
+      if (!bar || this.steps.length === 0) return;
+      bar.hidden = false;
+      this.tabIndex = 0;
+      bar.addEventListener('click', (e) => {
+        const act = (e.target as HTMLElement).closest('button')?.dataset.act;
+        if (act === 'prev') this.go(this.index - 1, true);
+        if (act === 'next') this.go(this.index + 1, true);
+        if (act === 'play') this.toggle();
+      });
+      this.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowLeft') this.go(this.index - 1, true);
+        if (e.key === 'ArrowRight') this.go(this.index + 1, true);
+      });
+      this.go(0, false);
+    }
+
+    disconnectedCallback() {
+      this.stop();
+    }
+
+    private go(i: number, user: boolean) {
+      if (user) this.stop();
+      this.index = Math.max(0, Math.min(i, this.steps.length - 1));
+      this.steps.forEach((s, k) => s.classList.toggle('is-active', k === this.index));
+      const count = this.querySelector('.stepper-count');
+      if (count) count.textContent = `${this.index + 1} / ${this.steps.length}`;
+      const prev = this.querySelector<HTMLButtonElement>('[data-act="prev"]');
+      const next = this.querySelector<HTMLButtonElement>('[data-act="next"]');
+      if (prev) prev.disabled = this.index === 0;
+      if (next) next.disabled = this.index === this.steps.length - 1;
+    }
+
+    private toggle() {
+      if (this.timer !== undefined) {
+        this.stop();
+        return;
+      }
+      if (this.index === this.steps.length - 1) this.go(0, false);
+      const play = this.querySelector('.stepper-play');
+      if (play) play.textContent = '暂停';
+      const ms = Number(this.dataset.interval) || 2200;
+      this.timer = window.setInterval(() => {
+        if (this.index >= this.steps.length - 1) this.stop();
+        else this.go(this.index + 1, false);
+      }, ms);
+    }
+
+    private stop() {
+      if (this.timer !== undefined) window.clearInterval(this.timer);
+      this.timer = undefined;
+      const play = this.querySelector('.stepper-play');
+      if (play) play.textContent = '自动播放';
+    }
+  }
+
+  if (!customElements.get('algo-stepper')) customElements.define('algo-stepper', AlgoStepper);
+</script>

@@ -1,0 +1,21 @@
+{
+  "python": "chunk_spans",
+  "typescript": "chunkSpans",
+  "kind": "function",
+  "cases": [
+    {"name": "样例：n=10 刚好切完", "args": [10, 4, 1], "expected": [[0, 4], [3, 7], [6, 10]]},
+    {"name": "样例：n=7 不能多出碎片", "args": [7, 4, 1], "expected": [[0, 4], [3, 7]]},
+    {"name": "空文档", "args": [0, 4, 1], "expected": []},
+    {"name": "只有 1 个 token", "args": [1, 4, 1], "expected": [[0, 1]]},
+    {"name": "文档比一块还短", "args": [3, 4, 1], "expected": [[0, 3]]},
+    {"name": "文档正好一块长", "args": [4, 4, 1], "expected": [[0, 4]]},
+    {"name": "不重叠", "args": [8, 4, 0], "expected": [[0, 4], [4, 8]]},
+    {"name": "重叠取最大 size-1，步长 1", "args": [5, 3, 2], "expected": [[0, 3], [1, 4], [2, 5]]},
+    {"name": "最后一块不足 size", "args": [11, 4, 1], "expected": [[0, 4], [3, 7], [6, 10], [9, 11]]},
+    {"name": "n=1000，size=128，overlap=32", "args": [1000, 128, 32], "expected": [[0, 128], [96, 224], [192, 320], [288, 416], [384, 512], [480, 608], [576, 704], [672, 800], [768, 896], [864, 992], [960, 1000]]},
+    {"name": "overlap 等于 size", "args": [10, 4, 4], "raises": true},
+    {"name": "overlap 为负", "args": [10, 4, -1], "raises": true},
+    {"name": "size 为 0", "args": [10, 0, 0], "raises": true},
+    {"name": "n 为负", "args": [-1, 4, 1], "raises": true}
+  ]
+}

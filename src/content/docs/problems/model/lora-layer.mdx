@@ -1,0 +1,182 @@
+---
+title: 写一个 LoRA 线性层，再把它合并回原权重
+description: 冻结 W，旁边加一条 B·A 低秩旁路；前向时先乘 A 再乘 B，部署前把 B·A 合并进 W。
+sidebar:
+  label: 39. LoRA 线性层与合并
+  order: 39
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Grid, Graph } from '~/components/viz';
+
+<ProblemMeta slug="lora-layer" />
+
+## 题目
+
+实现一个 LoRA 线性层：冻结原权重 `W`（d × k），旁边加两个小矩阵 `A`（r × k）和 `B`（d × r），r 是 `A` 的行数。`x` 有 k 维，输出
+
+```text
+y = W·x + (alpha / r) · B·(A·x)
+```
+
+类 `LoRALinear(W, A, B, alpha)` 提供两个方法：
+
+1. `forward(x)` 返回 `y`。
+2. `merge()` 返回新矩阵 `W' = W + (alpha / r)·B·A`，`W'·x` 应等于 `forward(x)`。`merge` 不修改层本身，调用后 `forward` 的结果不变。
+
+- 矩阵用嵌套列表表示，每个内层列表是一行。
+- `W` 或 `A` 为空、形状对不上（`W` 每行不是 k 个数，`A` 不是 r × k，`B` 不是 d × r）、`x` 长度不是 k 时，抛 `ValueError`（TypeScript 抛 `Error`）。
+
+## 样例
+
+| 样例 | 输入 | `forward(x)` | `merge()` |
+|---|---|---|---|
+| 1 | `W = [[1,0],[0,1]]`<br />`A = [[1,1]]`<br />`B = [[0],[0]]`<br />`alpha = 2`，`x = [1,2]` | `[1, 2]` | `[[1,0],[0,1]]` |
+| 2 | 同上，只把 `B` 换成 `[[2],[0]]` | `[13, 2]` | `[[5,4],[0,1]]` |
+| 3 | `W = [[1,2,0],[0,1,-1]]`<br />`A = [[1,0,1],[0,1,1]]`<br />`B = [[1,0],[0,2]]`<br />`alpha = 2`，`x = [1,1,1]` | `[5, 4]` | `[[2,2,1],[0,3,1]]` |
+
+样例 1 的 `B` 全是 0，旁路不加任何东西，输出和原层一样。样例 3 的 r = 2，抓“缩放系数忘了除以 r”：系数应是 2 / 2 = 1，错写成 2 会得到 `[7, 8]`。前两个样例 r = 1，看不出区别。
+
+## 思路
+
+前向时原路 `W·x` 加上旁路 `s·B·(A·x)`，s = alpha / r；合并时利用结合律，把 `s·B·A` 直接加到 `W` 上。
+
+### 前向：两条路相加
+
+<Figure caption="上面是冻结的 `W`。下面是可训练的旁路：`A` 把 k 维的 `x` 压到 r 维，`B` 再展开回 d 维，乘 alpha / r 后和原路相加。r 远小于 d 和 k。">
+  <Graph
+    nodes={[
+      { id: 'x', label: 'x', sub: 'k 维', x: 34, y: 150, shape: 'rect', w: 52, h: 48 },
+      { id: 'W', label: 'W', sub: 'd × k，冻结', x: 225, y: 70, shape: 'rect', w: 140, h: 96, tone: 'done' },
+      { id: 'A', label: 'A', sub: 'r × k', x: 185, y: 240, shape: 'rect', w: 130, h: 46, tone: 'accent' },
+      { id: 'B', label: 'B', sub: 'd × r', x: 320, y: 240, shape: 'rect', w: 58, h: 104, tone: 'accent' },
+      { id: 's', label: '× α/r', x: 415, y: 240 },
+      { id: 'p', label: '+', x: 505, y: 150 },
+      { id: 'y', label: 'y', sub: 'd 维', x: 580, y: 150, shape: 'rect', w: 52, h: 48 },
+    ]}
+    edges={[
+      { from: 'x', to: 'W' },
+      { from: 'x', to: 'A', tone: 'accent' },
+      { from: 'A', to: 'B', label: 'r 维', tone: 'accent' },
+      { from: 'B', to: 's', tone: 'accent' },
+      { from: 'W', to: 'p', label: 'W·x' },
+      { from: 's', to: 'p', tone: 'accent' },
+      { from: 'p', to: 'y' },
+    ]}
+  />
+</Figure>
+
+用第二个样例走一遍，`x = [1, 2]`。
+
+原路：`W` 是单位阵，`W·x = [1, 2]`。
+
+旁路分三步：
+
+- `A·x`：`A` 只有一行 `[1, 1]`，得 1 + 2 = 3，即 r = 1 维的向量 `[3]`。
+- `B·[3]`：`B = [[2], [0]]`，得 `[6, 0]`。
+- 乘缩放系数 alpha / r = 2 / 1 = 2，得 `[12, 0]`。
+
+两路相加：`[1 + 12, 2 + 0] = [13, 2]`。
+
+**先算 `A·x`，再乘 `B`。** 中间结果只有 r 个数，乘法次数是 r·k + d·r = r(d + k)。先把 `B·A` 拼成 d × k 的大矩阵再乘 `x`，光拼矩阵就要 d·k·r 次乘法，LoRA 就不省计算了。
+
+### 为什么叫“低秩”，又为什么省参数
+
+`B·A` 是 d × k 的矩阵，但它由 d × r 和 r × k 相乘得到，秩最多是 r。LoRA 假设微调需要的改动 ΔW 能用这样的低秩矩阵表示，所以只训练 `A` 和 `B`。
+
+d = k = 4096、r = 8 时，原矩阵有 4096 × 4096 = 16,777,216 个参数；`A` 和 `B` 合计 8 × 4096 + 4096 × 8 = 65,536 个，约为原来的 0.39%。
+
+缩放系数 alpha / r 让旁路输出的量级不随 r 大幅变化，换 r 做实验时不用重调 alpha。
+
+### 合并：把旁路折进 W
+
+部署时把旁路合并进 `W`，就不用每次多走一条路。矩阵乘法满足结合律：
+
+```text
+W·x + s·B·(A·x) = (W + s·B·A)·x，其中 s = alpha / r
+```
+
+第二个样例里，`B·A` 是 2 × 1 乘 1 × 2：
+
+<Figure caption="`B·A` 得到 2 × 2 的低秩矩阵，乘 s = 2 后加到 `W` 上。">
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">B（2 × 1）</p>
+      <Grid rows={[[2], [0]]} tones={{ '0,0': 'accent', '1,0': 'accent' }} />
+    </div>
+    <div>
+      <p class="viz-row-label">A（1 × 2）</p>
+      <Grid rows={[[1, 1]]} tones={{ '0,0': 'accent', '0,1': 'accent' }} />
+    </div>
+    <div>
+      <p class="viz-row-label">s·B·A（s = 2）</p>
+      <Grid rows={[[4, 4], [0, 0]]} tones={{ '0,0': 'soft', '0,1': 'soft', '1,0': 'soft', '1,1': 'soft' }} />
+    </div>
+    <div>
+      <p class="viz-row-label">W（单位阵）</p>
+      <Grid rows={[[1, 0], [0, 1]]} tones={{ '0,0': 'done', '0,1': 'done', '1,0': 'done', '1,1': 'done' }} />
+    </div>
+    <div>
+      <p class="viz-row-label">W' = W + s·B·A</p>
+      <Grid rows={[[5, 4], [0, 1]]} tones={{ '0,0': 'strong', '0,1': 'strong' }} />
+    </div>
+  </div>
+</Figure>
+
+`B·A = [[2, 2], [0, 0]]`，乘 2 得 `[[4, 4], [0, 0]]`，加上单位阵得 `W' = [[5, 4], [0, 1]]`。验证：`W'·[1, 2] = [5 + 8, 0 + 2] = [13, 2]`。
+
+合并后就是普通线性层，推理没有额外开销。合并本身要做 d × k × r 次乘法，只在部署前做一次。
+
+## 代码
+
+<Solution slug="lora-layer" />
+
+TypeScript 的类字段是逐个声明再在构造函数里赋值的，没有用 `constructor(public W: …)` 这种参数属性写法，因为 Node 直接运行 TypeScript 时只支持能直接擦掉的类型语法。
+
+合并前后的结果在数学上相等，在浮点数上可能差最后几位：`forward` 先算 `A·x` 再乘 `B`，合并后是先算 `B·A` 再乘 `x`，加法顺序不同。随机测试里一个分量合并前是 −27.155836，合并后是 −27.155836000000004，测试按 1e-9 的容差比较。
+
+## 复杂度
+
+d 是输出维数，k 是输入维数，r 是 LoRA 的秩（`A` 的行数）。
+
+- **前向时间 O(dk + r(d + k))**：原路 d·k 次乘法，旁路 r·k + d·r 次。
+- **合并时间 O(dkr)**：d × k 个元素，每个要做 r 次乘加。只在部署前做一次。
+- **空间**：前向只多出 r 维的中间向量和 d 维的输出；合并返回一个新的 d × k 矩阵。
+
+## 自测：缩放系数和合并后的旁路
+
+<Aside type="caution" title="两个容易出错的地方">
+第三个样例（r = 2、alpha = 2）的输出是 `[5, 4]`。如果你得到 `[7, 8]`，缩放系数用了 alpha 而没有除以 r。
+
+第二个样例先调用 `merge()` 再调用 `forward([1, 2])`，结果仍应是 `[13, 2]`。如果你得到 `[25, 2]`，说明 `merge` 把 `W` 原地改成了 `W'`，旁路又加了一遍。真实框架里合并后都会同时拿掉旁路，或者把 `B` 置零，原因就在这里。
+</Aside>
+
+本页代码还测过 1 × 1 的最小形状、alpha = 0、一个 3 × 4、r = 2 的随机例子，以及 20 组随机形状下“合并前后结果一致”，非法形状也都会抛错。
+
+## 延伸：A 和 B 都初始化为 0，能训练吗？
+
+原论文的初始化是 `A` 随机、`B` 全零。如果两个都初始化为 0 呢？
+
+先看损失对 `A`、`B` 的梯度。记 `h = A·x`，g 是损失对输出 `y` 的梯度，s = alpha / r：
+
+- 对 `B[i][t]` 的梯度是 `s · g[i] · h[t]`。它要乘上 `h = A·x`。
+- 对 `A[t][j]` 的梯度是 `s · (Σᵢ B[i][t]·g[i]) · x[j]`。它要乘上 `B`。
+
+用第一个样例试，取 g = `[1, 0]`（相当于损失就是 `y[0]`）：
+
+- `A = [[1, 1]]`、`B = 0`：h = 3，`B` 的梯度是 2 × [1, 0] × 3 = `[[6], [0]]`；`A` 的梯度因为 `B = 0` 而是 `[[0, 0]]`。只有 `B` 能动。
+- `A = 0`、`B = 0`：h = 0，`B` 的梯度也成了 `[[0], [0]]`。两个梯度都是 0，参数永远停在 0，旁路学不到任何东西。
+- 接着第一种情况，学习率 0.1 走一步，`B` 变成 `[[-0.6], [0]]`。这时 `A` 的梯度是 2 × (−0.6) × [1, 2] = `[[-1.2, -2.4]]`，`A` 也开始更新了。
+
+所以解法不用改，要改的是初始化。一个为零，保证起点处旁路输出为 0，模型和原模型相同；另一个随机，保证梯度不全为零。反过来让 `A = 0`、`B` 随机也能训练，只是先动的变成 `A`。
+
+<Solution slug="lora-layer" file="followup" />
+
+## 参考
+
+- [LoRA: Low-Rank Adaptation of Large Language Models（arXiv 2106.09685）](https://arxiv.org/abs/2106.09685)
+- [Hugging Face PEFT 文档：LoRA](https://huggingface.co/docs/peft/main/en/conceptual_guides/lora)
+- 用同样的方式数参数量：<ProblemLink slug="params-and-kv-cache" />

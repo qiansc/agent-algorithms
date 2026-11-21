@@ -1,0 +1,173 @@
+---
+title: 五次尝试两次成功，pass@2 是多少
+description: n 条运行记录里有 c 条成功，不放回地抽 k 条，求至少抽到一条成功的概率，用连乘加对数在 O(k) 内算出。
+sidebar:
+  label: 47. pass@k
+  order: 47
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Grid, Bars } from '~/components/viz';
+
+export const runs = ['成1', '成2', '败1', '败2', '败3'];
+export const pairRows = runs.map((_, i) =>
+  runs.map((_, j) => (j <= i ? null : i < 2 || j < 2 ? '通过' : '全败')),
+);
+export const pairTones = Object.fromEntries(
+  runs.flatMap((_, i) =>
+    runs.map((_, j) => [`${i},${j}`, j <= i ? 'muted' : i < 2 || j < 2 ? 'soft' : 'accent']),
+  ),
+);
+
+<ProblemMeta slug="pass-at-k" />
+
+## 题目
+
+写 `pass_at_k(n, c, k)`，返回 pass@k：从 n 条运行记录里等概率、**不放回**地抽 k 条，至少有一条成功的概率。
+
+- 同一道题让模型做了 n 次，其中 c 次成功。
+- 输入都是整数，满足 1 ≤ k ≤ n ≤ 100000，0 ≤ c ≤ n。不满足时 Python 抛 `ValueError`，TypeScript 抛 `Error`。
+- 返回浮点数，误差不超过 1e-9。
+
+## 样例
+
+| `n` | `c` | `k` | 输出 | 说明 |
+|---|---|---|---|---|
+| 5 | 2 | 2 | `0.7` | 10 种抽法里有 3 种全是失败 |
+| 5 | 2 | 4 | `1.0` | 失败记录只有 3 条，凑不满 4 条 |
+| 5 | 2 | 1 | `0.4` | 只抽一条时就是成功率 2/5 |
+| 5 | 0 | 3 | `0.0` | 一条成功都没有 |
+
+样例 1 检查抽样方式。把成功率 2/5 代进 `1 - (1 - 2/5)²` 会得到 0.64，这是放回抽样的结果。
+
+## 思路
+
+算“k 条全失败”的概率，再用 1 减。全失败的概率按一抽一抽连乘，取对数相加，避免溢出和丢精度。
+
+### 先数清楚样例 1
+
+五条记录记作 成1、成2、败1、败2、败3。抽两条、不计顺序，共有 C(5, 2) = 10 种组合。C(n, k) 是从 n 个里选 k 个的方法数。
+
+全是失败的只有 败1败2、败1败3、败2败3 这 3 种。每种组合机会相同，所以 pass@2 = 1 − 3/10 = 0.7。
+
+<Figure caption="右上三角是 10 种抽法，加边框的 3 种全是失败。右侧是不放回（0.7）和放回（0.64）的对比。">
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">抽两条的 10 种组合</p>
+      <Grid rows={pairRows} rowHeaders={runs} colHeaders={runs} tones={pairTones} cellWidth={52} />
+    </div>
+    <div>
+      <p class="viz-row-label">不放回与放回</p>
+      <Bars
+        items={[
+          { label: '不放回', value: 0.7, tone: 'strong' },
+          { label: '放回', value: 0.64, tone: 'warn' },
+        ]}
+        max={1}
+        barHeight={150}
+      />
+    </div>
+  </div>
+</Figure>
+
+### 只数“全失败”
+
+“至少一条成功”要分成功一条、两条……分别数。“全失败”只有一种情况：k 条全来自 n − c 条失败记录，方法数是 C(n − c, k)。于是
+
+`pass@k = 1 − C(n − c, k) / C(n, k)`
+
+样例 1：C(3, 2) / C(5, 2) = 3/10。
+
+### 不算组合数，改成一抽一抽地乘
+
+n 到 100000 时，C(100000, 50000) 是一个三万多位的整数。Python 的 `math.comb` 能精确算；TypeScript 的数字会溢出成 `Infinity`，相除得到 `NaN`。所以不算组合数。
+
+把“全失败”看成一条一条地抽，每一抽都落在失败记录上。
+
+- 第 1 抽：5 条里有 3 条失败，概率 3/5。
+- 第 2 抽：已经拿走 1 条失败，池里剩 4 条，成功 2 条、失败 2 条，概率 2/4。
+
+全失败的概率是 3/5 × 2/4 = 6/20 = 3/10，和数组合的结果一样。
+
+<Figure caption="第 2 抽之前已拿走一条失败记录（虚线格），池子剩 4 条，成功的 2 条都还在。">
+  <ArrayCells
+    label="第 1 抽"
+    values={['成', '成', '败', '败', '败']}
+    tones={['default', 'default', 'accent', 'accent', 'accent']}
+    ranges={[{ from: 2, to: 4, label: '失败 3/5' }]}
+    index={false}
+  />
+  <ArrayCells
+    label="第 2 抽"
+    values={['成', '成', '败', '败', '']}
+    tones={['default', 'default', 'accent', 'accent', 'ghost']}
+    ranges={[{ from: 2, to: 3, label: '失败 2/4' }]}
+    index={false}
+  />
+</Figure>
+
+一般地，第 i 抽（从 0 数起）之前已拿走 i 条失败记录，池里剩 n − i 条，成功的仍是 c 条。这一抽失败的概率是 `1 − c / (n − i)`。k 个这样的数相乘，就是全失败的概率。
+
+### 两个提前返回
+
+- c = 0：没有成功记录，答案是 0。
+- n − c < k：失败记录不到 k 条，抽 k 条一定有成功的。样例 2 里失败只有 3 条，抽 4 条，答案是 1。这时连乘里会出现 `1 − c / c = 0`，提前返回可以避免对 0 取对数。
+
+### 为什么用对数
+
+k 可以到几万。连乘几万个小于 1 的数再用 1 去减，答案很小时，1 减去一个很接近 1 的数会丢掉有效数字。
+
+代码把每一项取对数相加。`log1p(-x)` 直接算 ln(1 − x)，最后 `-expm1(s)` 直接算 1 − eˢ。这两个函数在 x 接近 0 时仍然精确，结果小到 1e-5 也能保留十几位有效数字。
+
+例如 n = 100000、c = 1、k = 1，答案是 1e-5。直接用 `1 - (1 - 1/100000)` 得到 9.99999999995449e-06，误差在 1e-9 以内，但第 12 位已经错了。
+
+## 代码
+
+<Solution slug="pass-at-k" />
+
+两个版本都只用浮点数。如果你想用组合数公式对拍：Python 的 `math.comb` 返回精确的大整数，`Fraction` 可以精确相除；TypeScript 要换成 `BigInt` 自己算组合数，本页的扩展测试就是这样对拍的。
+
+## 复杂度
+
+n 是记录总数，c 是成功条数，k 是抽取条数。
+
+- **时间 O(k)**：循环 k 次，每次一次除法、一次 `log1p`。提前返回的两种情况是 O(1)。
+- **空间 O(1)**：只存一个累加和。
+
+组合数有个恒等式 C(n − c, k) / C(n, k) = C(n − k, c) / C(n, c)，所以也可以只循环 c 次，写成 c 项的连乘，c 比 k 小时更快。
+
+## 自测：两个最容易错的输入
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`pass_at_k(5, 2, 2)` 的正确答案是 0.7。如果你得到 0.64，你用的是放回抽样的公式 `1 - (1 - c/n)^k`。
+
+`pass_at_k(5, 2, 4)` 的正确答案是 1.0。如果 Python 报 `ValueError: math domain error`，是没有提前处理“失败记录不够 k 条”。第 4 抽那一项是 1 − 2/2 = 0，`log1p(-1)` 没有定义。TypeScript 的 `Math.log1p(-1)` 返回 `-Infinity`，碰巧还能算出 1，所以这个错在 TypeScript 里不容易发现。
+
+`pass_at_k(100000, 3, 50000)` 的正确答案约是 0.875004。如果 TypeScript 得到 `NaN`，是用浮点数算了阶乘或组合数。
+</Aside>
+
+本页代码还和组合数公式在 300 组随机的小规模输入上对拍过，n = 100000 的大输入也在测试里。
+
+## 延伸：评估 100 道题时，能把所有记录混在一起算吗？
+
+题目变成：有很多道题，每道题各自有 (n, c)，要报告整体的 pass@k。
+
+不能把所有题的 n 和 c 各自加起来再算。pass@k 问的是“一道题给 k 次机会，能不能做出来”。混在一起算，问的变成“从所有题的记录里抽 k 条，有没有成功的”，这 k 条可能来自不同的题。
+
+例子：两道题各跑 2 次，第一道两次都对，第二道两次都错。
+
+- 逐题算：第一道 pass@2 = 1，第二道 pass@2 = 0，平均 0.5。
+- 混在一起：4 条里 2 条成功，`pass_at_k(4, 2, 2) = 1 − 1/6 = 5/6 ≈ 0.833`。
+
+第二道题一次都没做对，混算结果却比 0.5 高很多。原解法不用改，在外面套一层：逐题调用 `pass_at_k`，再取平均。每道题的 n 可以不同，但都要满足 n ≥ k。
+
+<Solution slug="pass-at-k" file="followup" />
+
+## 参考
+
+- [Chen et al. Evaluating Large Language Models Trained on Code（HumanEval 论文，pass@k 的无偏估计见 2.1 节）](https://arxiv.org/abs/2107.03374)
+- [human-eval 仓库中的 `estimate_pass_at_k` 实现](https://github.com/openai/human-eval/blob/master/human_eval/evaluation.py)
+- 同样针对同一道题的多次尝试：<ProblemLink slug="grpo-advantage" />；另一类评测指标：<ProblemLink slug="recall-mrr" />

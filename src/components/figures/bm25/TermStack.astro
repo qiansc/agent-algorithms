@@ -1,0 +1,62 @@
+---
+// 横向堆叠条：每篇文档一行，每个查询词贡献一段，右侧写总分。
+import { textWidth, toneClass, type Tone } from '~/components/viz/shared';
+
+interface Part {
+  term: string;
+  value: number;
+  tone?: Tone;
+}
+interface Row {
+  label: string;
+  parts: Part[];
+}
+interface Props {
+  rows: Row[];
+  max: number;
+  scale?: number; // 每 1 分多少像素
+  digits?: number;
+  ariaLabel?: string;
+}
+
+const { rows, max, scale = 320, digits = 4, ariaLabel } = Astro.props;
+const labelW = Math.ceil(Math.max(...rows.map((r) => textWidth(r.label, 13)))) + 14;
+const rowH = 34;
+const gap = 12;
+const top = 6;
+const fmt = (v: number) => v.toFixed(digits);
+const width = labelW + max * scale + 90;
+const height = top + rows.length * (rowH + gap);
+---
+
+<svg class="viz" viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label={ariaLabel ?? '分数构成'}>
+  {rows.map((r, i) => {
+    const y = top + i * (rowH + gap);
+    let x = labelW;
+    const total = r.parts.reduce((s, p) => s + p.value, 0);
+    const segs = r.parts.map((p) => {
+      const seg = { x, w: p.value * scale, p };
+      x += seg.w;
+      return seg;
+    });
+    return (
+      <g>
+        <text class="viz-label" x={labelW - 10} y={y + rowH / 2} text-anchor="end" dominant-baseline="central">{r.label}</text>
+        {segs.length === 0 || total === 0 ? (
+          <g class="viz-cell t-ghost">
+            <rect x={labelW} y={y} width={60} height={rowH} rx="4" />
+          </g>
+        ) : null}
+        {segs.filter((s) => s.w > 0).map((s) => (
+          <g class={`viz-cell ${toneClass(s.p.tone)}`}>
+            <rect x={s.x + 1} y={y} width={s.w - 2} height={rowH} rx="4" />
+            <text x={s.x + s.w / 2} y={y + rowH / 2} text-anchor="middle" dominant-baseline="central" style="font-size: 12.5px">
+              {`${s.p.term} ${s.p.value.toFixed(3)}`}
+            </text>
+          </g>
+        ))}
+        <text class="viz-bar-value" x={x + 10} y={y + rowH / 2} dominant-baseline="central">{fmt(total)}</text>
+      </g>
+    );
+  })}
+</svg>

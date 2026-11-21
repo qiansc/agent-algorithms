@@ -1,0 +1,64 @@
+---
+// 时间轴泳道：并行执行、调度、限流窗口、调用栈耗时。
+import { textWidth, toneClass, type Tone } from './shared';
+
+interface Item {
+  start: number;
+  end: number;
+  label?: string;
+  tone?: Tone;
+}
+interface Mark {
+  at: number;
+  label?: string;
+  tone?: Tone;
+}
+interface Props {
+  lanes: { label: string; items: Item[] }[];
+  from: number;
+  to: number;
+  ticks?: number[];
+  marks?: Mark[];
+  scale?: number;
+  unit?: string;
+  ariaLabel?: string;
+}
+
+const { lanes, from, to, marks = [], unit = '', ariaLabel } = Astro.props;
+const scale = Astro.props.scale ?? Math.max(18, Math.min(60, 560 / Math.max(to - from, 1)));
+const ticks = Astro.props.ticks ?? Array.from({ length: to - from + 1 }, (_, i) => from + i);
+const left = Math.ceil(Math.max(...lanes.map((l) => textWidth(l.label, 13)), 0)) + 18;
+const laneH = 38;
+const top = marks.some((m) => m.label) ? 22 : 8;
+const x = (t: number) => left + (t - from) * scale;
+const width = Math.ceil(x(to) + 16);
+const height = top + lanes.length * laneH + 30;
+---
+
+<svg class="viz" viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label={ariaLabel ?? '时间轴'}>
+  {ticks.map((t) => (
+    <g class="viz-tick">
+      <line x1={x(t)} x2={x(t)} y1={top} y2={top + lanes.length * laneH} />
+      <text x={x(t)} y={top + lanes.length * laneH + 16} text-anchor="middle">{t}{unit}</text>
+    </g>
+  ))}
+  {lanes.map((lane, r) => (
+    <g>
+      <text class="viz-label" x={left - 10} y={top + r * laneH + laneH / 2} text-anchor="end" dominant-baseline="central">{lane.label}</text>
+      {lane.items.map((it) => (
+        <g class={`viz-cell ${toneClass(it.tone ?? 'accent')}`}>
+          <rect x={x(it.start) + 1} y={top + r * laneH + 6} width={Math.max(x(it.end) - x(it.start) - 2, 2)} height={laneH - 12} rx="4" />
+          {it.label && (
+            <text x={(x(it.start) + x(it.end)) / 2} y={top + r * laneH + laneH / 2} text-anchor="middle" dominant-baseline="central">{it.label}</text>
+          )}
+        </g>
+      ))}
+    </g>
+  ))}
+  {marks.map((m) => (
+    <g class={`viz-mark ${toneClass(m.tone ?? 'warn')}`}>
+      <line x1={x(m.at)} x2={x(m.at)} y1={top - 4} y2={top + lanes.length * laneH} />
+      {m.label && <text x={x(m.at)} y={top - 8} text-anchor="middle">{m.label}</text>}
+    </g>
+  ))}
+</svg>

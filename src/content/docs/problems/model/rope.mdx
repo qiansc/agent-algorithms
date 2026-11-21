@@ -1,0 +1,127 @@
+---
+title: 给向量加上旋转位置编码 RoPE
+description: 把向量每两维看成平面上的点，按位置和频率逆时针旋转，让注意力分数只依赖相对位置。
+sidebar:
+  label: 36. 旋转位置编码 RoPE
+  order: 36
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Stepper, Step } from '~/components/viz';
+import RotationPlanes from '~/components/figures/rope/RotationPlanes.astro';
+
+export const frames = [
+  { pos: 0, trail: [], caption: '位置 0：角度都是 0，向量不动，两对都还是 (1, 0)。' },
+  { pos: 1, trail: [0], caption: '位置 1：第 0 对转 1 弧度，到 (0.540, 0.841)；第 1 对转 0.1 弧度，到 (0.995, 0.100)。' },
+  { pos: 2, trail: [0, 1], caption: '位置 2：第 0 对转 2 弧度，过了 y 轴，到 (−0.416, 0.909)；第 1 对转 0.2 弧度，到 (0.980, 0.199)。即样例 1 的答案。' },
+  { pos: 3, trail: [0, 1, 2], caption: '位置 3：第 0 对转 3 弧度，接近半圈，到 (−0.990, 0.141)；第 1 对才转 0.3 弧度。' },
+  {
+    pos: 2, trail: [], wrong: { pair: 0, x: -0.4161468365471424, y: -0.37840124765396416, label: '先改 x 的结果' },
+    caption: '错误写法：先把 x 改成 cos 2 ≈ −0.416，再用新 x 算 y，得到 −0.416 × sin 2 ≈ −0.378。虚线箭头长度不再是 1，已经不是旋转。',
+  },
+];
+
+<ProblemMeta slug="rope" />
+
+## 题目
+
+实现旋转位置编码（RoPE）`rope(vec, pos, base)`：按位置 `pos` 把向量逐对旋转，返回新向量，不修改输入。
+
+- 把相邻两维 `(vec[2j], vec[2j+1])` 看成平面上的点，j 从 0 开始，共 d / 2 对（d 是 `vec` 的长度）。
+- 第 j 对逆时针旋转 `θ = pos × base^(−2j/d)` 弧度。
+- `base` 默认是 10000。`pos` 可以是任意实数，负数表示反方向转。
+- d = 0 时返回空列表。d 为奇数时，Python 抛 `ValueError`，TypeScript 抛 `RangeError`。
+
+## 样例
+
+| 调用 | 输出（保留 4 位） |
+|---|---|
+| `rope([1, 0, 1, 0], pos=2, base=100)` | `[-0.4161, 0.9093, 0.9801, 0.1987]` |
+| `rope([1, 2], pos=1)` | `[-1.1426, 1.9221]` |
+| `rope([0.5, -1.5, 2, 3], pos=0)` | `[0.5, -1.5, 2, 3]` |
+
+样例 1 防“先改 x，再用新 x 算 y”。那样第 0 对会得到 `(-0.4161, -0.3784)`，长度都变了。样例 2 的 y 不是 0，同样的错误会得到 `(-1.1426, 0.1191)`。
+
+## 思路
+
+每一对按自己的频率算出角度，用旋转公式同时算出新的 x、y。
+
+### 旋转一个点
+
+平面上的点 (x, y) 逆时针转 θ，新坐标是：
+
+- x' = x·cos θ − y·sin θ
+- y' = x·sin θ + y·cos θ
+
+两行都用**旧的** x、y。代码先取出 `x, y = vec[2j], vec[2j+1]`，再同时算两个新值。
+
+### 每一对转多少
+
+样例 1 里 d = 4，有两对。
+
+- 第 0 对（j = 0）：频率 `100^0 = 1`，角度 θ = 2 × 1 = 2 弧度。点 (1, 0) 转 2 弧度到 (cos 2, sin 2) = (−0.4161, 0.9093)。
+- 第 1 对（j = 1）：频率 `100^(−2/4) = 0.1`，角度 θ = 2 × 0.1 = 0.2 弧度，得到 (cos 0.2, sin 0.2) = (0.9801, 0.1987)。
+
+频率随 j 指数下降，前面的维度转得快，后面的转得慢。下图让位置从 0 走到 3：
+
+<Stepper title="rope([1, 0, 1, 0], pos, base=100)：位置 0 到 3">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <RotationPlanes vec={[1, 0, 1, 0]} pos={f.pos} base={100} trail={f.trail} wrong={f.wrong} />
+    </Step>
+  ))}
+</Stepper>
+
+第 0 对每个位置转 1 弧度，约 6.3 个位置转满一圈，之后会和前面的位置重合。第 1 对每个位置只转 0.1 弧度，要 63 个位置才转一圈。快的维度分辨相邻 token，慢的分辨远处 token，合起来在很长范围内都能区分位置。实际模型里 d 是 64 或 128、base 是 10000，最慢的一对要几万个位置才转一圈。
+
+### 为什么要转，而不是加一个位置向量
+
+设查询在位置 m，键在位置 n，ω 是某一对的频率。这一对上查询转了 mω，键转了 nω。点积等于长度之积乘夹角余弦，转完后夹角变了 (n − m)ω，只和位置差有关。每一对都如此，所以总分数也只和 n − m 有关。
+
+用数字验证：`q = [1, 2, 0.5, -1]`，`k = [0.3, -0.7, 2, 1]`，`base = 100`。(m, n) 取 (3, 5)、(0, 2)、(10, 12) 时，旋转后的点积都是 1.143175。换成 (5, 3)，点积是 −0.227652。同一位置 (2, 2) 时夹角不变，点积就是原始的 q·k = −1.1。
+
+## 代码
+
+<Solution slug="rope" />
+
+两个版本都按“第 j 对”循环，`base ** (-2 * j / d)` 在两种语言里写法相同（TypeScript 的 `**` 和 `Math.pow` 等价）。参数默认值两边都写在函数签名里：Python 是 `base: float = 10000.0`，TypeScript 是 `base = 10000`。`[...vec]` 和 `list(vec)` 都复制一份，不改动输入。
+
+### 另一种配对方式
+
+有些实现（例如 transformers 库里的 LLaMA）不是相邻两维配对，而是把向量切成前后两半，第 j 维和第 j + d/2 维配成一对，代码里叫 `rotate_half`。两种写法算出的数值不同，相对位置的性质一样。加载别人训练好的权重时，必须用它训练时的配对方式，否则模型输出会乱。
+
+## 复杂度
+
+d 是向量长度。
+
+- **时间 O(d)**：d / 2 对，每对一次 `cos`、一次 `sin` 和四次乘法。实际实现会把每个位置、每一对的 cos、sin 预先算成表，推理时只做乘加。
+- **空间 O(d)**：返回的新向量。
+
+## 自测：两个容易写错的地方
+
+<Aside type="caution" title="先手算，再跑代码">
+`rope([1, 0, 1, 0], pos=2, base=100)` 的答案是 `[-0.4161, 0.9093, 0.9801, 0.1987]`。如果第二个数是 −0.3784，是先改了 x 再用新 x 算 y。
+
+同一个输入，如果你得到 `[-0.4161, 0.9093, 0.8066, 0.5911]`，是把指数写成了 `-j / d`（j 是对的编号）：第 1 对的频率变成 100^(−1/4) ≈ 0.316，角度成了 0.632 弧度。指数里的 2j 是“第 j 对的起始维度下标”，用对的编号时要乘 2，用维度下标 i = 2j 时直接写 `-i / d`。
+</Aside>
+
+本页代码对三个样例、空向量、负位置、d = 6 用默认 base、一个 8 维随机向量（和“复数乘以 e^(iθ)”的写法对拍）以及奇数维度都跑过测试。
+
+## 延伸：位置从 0 编号改成从 1 编号，注意力分数会变吗？
+
+不变。所有位置同时加 1，每一对 (m, n) 的差 n − m 不变，而上面已经说明旋转后的点积只取决于这个差。比如原来查询在 3、键在 5，改编号后变成 4 和 6，差仍是 2，分数仍是 1.143175。
+
+下面的 `rope_score` 把“各自旋转、再做点积”写成一个函数，测试里对 0 到 3 的所有 (m, n) 都验证了 `rope_score(q, k, m, n) == rope_score(q, k, m + 1, n + 1)`。
+
+<Solution slug="rope" file="followup" />
+
+RoPE 只作用在 Q 和 K 上，V 不旋转。旋转是为了让 Q·K 带上相对位置；V 是被加权求和的内容，转它不会给分数添位置信息，只会把内容弄乱。拿到旋转后的 Q、K，后面照常做 <ProblemLink slug="causal-attention" label="因果注意力" />。
+
+## 参考
+
+- [Su et al., RoFormer: Enhanced Transformer with Rotary Position Embedding](https://arxiv.org/abs/2104.09864)
+- [transformers 源码 · LLaMA 的 rotate_half 与 apply_rotary_pos_emb](https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py)
+- 旋转后的 Q、K 怎么用：<ProblemLink slug="causal-attention" />、<ProblemLink slug="multi-head-attention" />

@@ -1,0 +1,101 @@
+---
+// 标题右上角的“已完成”开关。完成状态存在浏览器里（localStorage），
+// 同一个状态同时显示在标题、左侧目录和首页的三天安排里。
+const PAGE_TITLE_ID = '_top'; // 与 Starlight 默认标题的 id 一致，目录里的“概述”链接指向它
+
+const entryId = Astro.locals.starlightRoute.entry.id;
+const trackable = /^(problems|design)\//.test(entryId);
+---
+
+<div class="page-title-row">
+  <h1 id={PAGE_TITLE_ID}>{Astro.locals.starlightRoute.entry.data.title}</h1>
+  {trackable && (
+    <button type="button" class="done-toggle" data-done-toggle={entryId} aria-pressed="false" hidden>
+      <span class="done-icon" aria-hidden="true"></span>
+      <span class="done-label">标记完成</span>
+    </button>
+  )}
+</div>
+
+<script is:inline>
+  (() => {
+    const marks = window.__doneMarks;
+    const btn = document.currentScript.previousElementSibling.querySelector('[data-done-toggle]');
+    if (!marks || !btn) return;
+    const sync = () => {
+      const on = marks.read().includes(btn.dataset.doneToggle);
+      btn.hidden = false;
+      btn.setAttribute('aria-pressed', String(on));
+      btn.classList.toggle('is-done', on);
+      btn.querySelector('.done-label').textContent = on ? '已完成' : '标记完成';
+    };
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.doneToggle;
+      const done = new Set(marks.read());
+      if (done.has(id)) done.delete(id);
+      else done.add(id);
+      localStorage.setItem(marks.key, JSON.stringify([...done]));
+      marks.render();
+      sync();
+    });
+    window.addEventListener('storage', (e) => e.key === marks.key && sync());
+    sync();
+  })();
+</script>
+
+<script>
+  // 题目页里有“动手写”占位时，才加载编辑器（单独打包，不影响其他页面）
+  const slot = document.querySelector<HTMLElement>('[data-playground]');
+  if (slot) {
+    import('./playground/playground.ts').then((m) => m.mount(slot)).catch((e) => {
+      slot.textContent = `编辑器加载失败：${e}`;
+    });
+  }
+</script>
+
+<style>
+  .page-title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  h1 {
+    margin-top: 1rem;
+    font-size: var(--sl-text-h1);
+    line-height: var(--sl-line-height-headings);
+    font-weight: 600;
+    color: var(--sl-color-white);
+  }
+  .done-toggle {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 1.55rem;
+    padding: 0.3rem 0.75rem 0.3rem 0.55rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--sl-color-gray-3);
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .done-toggle:hover {
+    border-color: var(--sl-color-accent);
+    color: var(--sl-color-accent);
+  }
+  .done-toggle.is-done {
+    border-color: var(--done-color);
+    color: var(--done-color);
+  }
+  /* 未完成：空心圆；已完成：实心圆 + 镂空的勾 */
+  .done-toggle:not(.is-done) .done-icon {
+    background: none;
+    mask: none;
+    -webkit-mask: none;
+    border: 1.6px solid currentColor;
+    border-radius: 50%;
+  }
+</style>

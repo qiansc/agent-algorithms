@@ -1,0 +1,178 @@
+---
+title: 统计最常被调用的 K 个工具
+description: 数出每个工具的调用次数，按“次数降序、名称升序”一条排序键取前 K 个。
+sidebar:
+  label: 1. 最常被调用的 K 个工具
+  order: 1
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Grid, Graph, Stepper, Step } from '~/components/viz';
+
+export const pos = { root: [150, 34], l: [80, 112], r: [220, 112] };
+export const heapNodes = (items, incoming, dropped) => {
+  const slots = ['root', 'l', 'r'];
+  const nodes = items.map(([name, count, tone], i) => ({
+    id: slots[i], label: name, sub: `${count} 次`, shape: 'rect', w: 76,
+    x: pos[slots[i]][0], y: pos[slots[i]][1], tone,
+  }));
+  if (incoming) nodes.push({ id: 'in', label: `${incoming[0]} · ${incoming[1]} 次`, shape: 'rect', w: 96, x: 380, y: 34, tone: 'strong' });
+  if (dropped) nodes.push({ id: 'out', label: dropped[0], sub: `${dropped[1]} 次 · 淘汰`, shape: 'rect', w: 96, x: 380, y: 112, tone: 'muted' });
+  return nodes;
+};
+export const heapEdges = (n) => [
+  ...(n >= 2 ? [{ from: 'root', to: 'l', directed: false }] : []),
+  ...(n >= 3 ? [{ from: 'root', to: 'r', directed: false }] : []),
+];
+export const frames = [
+  {
+    items: [['web', 2, 'accent']], incoming: null, dropped: null,
+    caption: '计数已经做完：`web` 2、`db` 2、`mail` 1、`calc` 1。堆还空着，`web` 直接放进去，成为堆顶。',
+  },
+  {
+    items: [['web', 2, 'accent'], ['db', 2]], incoming: null, dropped: null,
+    caption: '`db` 进堆。它和 `web` 都是 2 次，名称 `db` 更小，算“更好”，所以不往上浮。堆顶仍是更差的 `web`。',
+  },
+  {
+    items: [['mail', 1, 'accent'], ['db', 2], ['web', 2]], incoming: null, dropped: null,
+    caption: '`mail` 进堆，挂在 `web` 下面。它只有 1 次，比 `web` 差，于是和 `web` 交换，升到堆顶。堆里已经有 k = 3 项。',
+  },
+  {
+    items: [['mail', 1, 'accent'], ['db', 2], ['web', 2]], incoming: ['calc', 1], dropped: null,
+    caption: '`calc` 来了，堆已满，只和堆顶 `mail` 比。两者都是 1 次，`calc` 的名称更小，比 `mail` 好，应该替换堆顶。',
+  },
+  {
+    items: [['calc', 1, 'accent'], ['db', 2], ['web', 2]], incoming: null, dropped: ['mail', 1],
+    caption: '`mail` 被淘汰，`calc` 坐上堆顶。下沉时 `calc` 比两个孩子都差，原地不动。',
+  },
+  {
+    items: [['calc', 1, 'done'], ['db', 2, 'done'], ['web', 2, 'done']], incoming: null, dropped: null,
+    caption: '扫描结束。依次弹出得到 `calc`、`web`、`db`（从差到好），倒过来就是答案 `["db", "web", "calc"]`。',
+  },
+];
+
+<ProblemMeta slug="top-k-tools" />
+
+## 题目
+
+日志 `calls` 的每一项是一次成功调用的工具名。给定 `calls` 和整数 `k`，返回调用次数最多的 `k` 个工具名，按次数从多到少排。
+
+- 次数相同时，按名称升序排。名称逐个比较字符编码，`"B"` 排在 `"a"` 前面。
+- 工具名都是不含空格的短 ASCII 字符串。
+- `k <= 0` 时返回空列表；`k` 大于工具种数时，全部工具按上面的规则排好返回。
+- 日志可以为空，此时返回空列表。
+
+## 样例
+
+| `calls` | `k` | 输出 |
+|---|---|---|
+| `["web","db","db","mail","web","calc"]` | `3` | `["db","web","calc"]` |
+| `["web","db","db","mail","web","calc"]` | `10` | `["db","web","calc","mail"]` |
+| `["b","B","a"]` | `3` | `["B","a","b"]` |
+
+第一个样例里，`db` 和 `web` 各 2 次，`calc` 和 `mail` 各 1 次。第三名在 `calc` 和 `mail` 之间挑，只能看名称。写成“整体倒序”的话，第三名会错成 `mail`。
+
+第三个样例的三个名字都只出现一次，检查的是名称怎么比。按字符编码，大写 `B`（66）小于小写 `a`（97）。
+
+## 思路
+
+先用字典数次数，再按排序键 `(-次数, 名称)` 升序排一遍，取前 `k` 个。
+
+计数：键是工具名，值是次数。扫一遍日志得到 `web → 2`、`db → 2`、`mail → 1`、`calc → 1`。
+
+排序有两个条件：次数降序，名称升序，方向相反。给每个工具配一个排序键，把两个条件合成一个：
+
+- `db` 的名片是 `(-2, "db")`
+- `web` 的名片是 `(-2, "web")`
+- `calc` 的名片是 `(-1, "calc")`
+- `mail` 的名片是 `(-1, "mail")`
+
+元组先比第一项，相等才比第二项。次数取负号后，次数多的第一项更小，排在前面。`db` 和 `web` 第一项相同，再比名称，`"db" < "web"`。整张表**只按一个方向升序排**，两个条件都满足了。
+
+<Figure caption="左边按名片 `(-次数, 名称)` 升序排，前 3 名是 `db`、`web`、`calc`。右边把 `(次数, 名称)` 整体倒序，次数对了，同频工具的名称也被一起倒了过来，第三名错成 `mail`。">
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">正确：按 (−次数, 名称) 升序</p>
+      <Grid
+        colHeaders={['工具', '排序键']}
+        rowHeaders={['第 1', '第 2', '第 3', '第 4']}
+        rows={[['db', '(−2, "db")'], ['web', '(−2, "web")'], ['calc', '(−1, "calc")'], ['mail', '(−1, "mail")']]}
+        tones={{ '0,0': 'accent', '1,0': 'accent', '2,0': 'accent', '3,0': 'muted', '3,1': 'muted' }}
+      />
+    </div>
+    <div style="margin-top: 0">
+      <p class="viz-row-label">错误：按 (次数, 名称) 整体倒序</p>
+      <Grid
+        colHeaders={['工具', '排序键']}
+        rowHeaders={['第 1', '第 2', '第 3', '第 4']}
+        rows={[['web', '(2, "web")'], ['db', '(2, "db")'], ['mail', '(1, "mail")'], ['calc', '(1, "calc")']]}
+        tones={{ '0,0': 'warn', '1,0': 'warn', '2,0': 'warn', '3,0': 'muted', '3,1': 'muted' }}
+      />
+    </div>
+  </div>
+</Figure>
+
+整体倒序为什么不行？`reverse=True` 把整个元组的比较都翻过来，名称顺序也跟着翻了：`"web"` 跑到 `"db"` 前面，`"mail"` 跑到 `"calc"` 前面。
+
+只按次数排、不比名称也不行。Python 的排序是稳定的，同频工具保持在字典里的先后，也就是第一次出现的顺序。于是 `web` 在 `db` 前，`mail` 在 `calc` 前，答案同样错。
+
+排好后取前 `k` 个。`k` 比工具种数大时，切片只会返回全部，不用特判；`k <= 0` 时在开头直接返回空列表。
+
+## 代码
+
+<Solution slug="top-k-tools" />
+
+TypeScript 没有元组比较，排序键要拆成比较函数里的两步：先用 `counts.get(b) - counts.get(a)` 比次数，等于 0 时再比名称。
+
+名称比较用 `<` 和 `>`，不要用 `localeCompare`。`localeCompare` 按语言习惯排序，会把 `["b","B","a"]` 排成 `["a","b","B"]`，和题目要求的字符编码顺序不一致。工具名都是 ASCII 时，`<` 的结果和 Python 完全一样。如果名称里有 emoji 这类超出基本平面的字符，JavaScript 按 UTF-16 编码单元比较，Python 按码点比较，两者可能不同，本题不涉及。
+
+## 复杂度
+
+n 是日志条数，u 是不同工具的种数，名称长度看作常数。
+
+- **时间 O(n + u log u)**：计数扫一遍日志，每次字典读写平均 O(1)；排序只排 u 个名字，不是 n 条日志。
+- **空间 O(u)**：计数字典和排序结果各占 u 项。
+
+## 自测：两个容易写错的输入
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`calls = ["web","db","db","mail","web","calc"], k = 3`，正确答案是 `["db","web","calc"]`。如果你得到 `["web","db","mail"]`，多半是用了 `reverse=True` 整体倒序，或者只按次数排序、没有比名称。
+
+`calls = ["b","B","a"], k = 3`，正确答案是 `["B","a","b"]`。如果 TypeScript 版得到 `["a","b","B"]`，说明名称比较用了 `localeCompare`。
+</Aside>
+
+测试还覆盖了 `k = 0`、负数 `k`、空日志、`k` 超过种数，以及一份 60 条的随机日志：其中 `asr`、`fetch`、`sql` 都是 6 次，而 `k = 5` 恰好在它们中间截断，只有 `asr` 和 `fetch` 能入选。
+
+## 延伸：有十万种工具，只要前 3 名呢？
+
+计数这一步不能省，也不能边读边淘汰。一个工具可能在日志前半段只出现一次，却在最后一万条里反复出现。读到一半就把它丢掉，后面就再也数不对了。
+
+能省的是排序。把 u 个工具全排一遍要 O(u log u)，但只需要前 k 名。改成维护一个最多装 k 项的小顶堆，堆顶是目前留下的 k 个里最差的那个。
+
+- 堆没满，新工具直接进堆。
+- 堆满了，新工具只和堆顶比。比堆顶好，就把堆顶换掉；不比堆顶好，直接跳过。
+
+这里的“差”要和题目的排序规则一致：次数少的更差；次数相同时，名称**大**的更差。下面用样例、`k = 3` 走一遍。
+
+<Stepper title="大小为 3 的堆，依次放入 web、db、mail、calc">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <Graph nodes={heapNodes(f.items, f.incoming, f.dropped)} edges={heapEdges(f.items.length)} width={440} height={150} />
+    </Step>
+  ))}
+</Stepper>
+
+每个工具最多引起一次 O(log k) 的上浮或下沉，选择阶段从 O(u log u) 降到 O(u log k)。u 是十万、k 是 3 时，每次堆操作只涉及两三层。计数仍然要 O(n)，空间仍然要 O(u) 存字典，堆本身只占 O(k)。
+
+<Solution slug="top-k-tools" file="followup" />
+
+Python 用标准库 `heapq`，靠 `_Entry.__lt__` 告诉它“谁更差”；`heapq.nsmallest(k, counts, key=lambda name: (-counts[name], name))` 内部做的也是同一件事。JavaScript 没有内置的堆，TypeScript 版手写了一个小顶堆，`worse` 函数就是比较规则。两个版本在 200 组随机日志上和排序版的结果逐一对比过，完全一致。
+
+## 参考
+
+- [力扣 692 · 前 K 个高频单词](https://leetcode.cn/problems/top-k-frequent-words/)：同样是“次数降序、名称升序”的双重规则。
+- [Python 文档 · heapq](https://docs.python.org/zh-cn/3/library/heapq.html)
+- 分数逐个到达、只保留前 K 名的版本：<ProblemLink slug="kth-score-stream" />

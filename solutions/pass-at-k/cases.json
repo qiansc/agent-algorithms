@@ -1,0 +1,22 @@
+{
+  "python": "pass_at_k",
+  "typescript": "passAtK",
+  "kind": "function",
+  "tol": 1e-9,
+  "cases": [
+    {"name": "样例 1：五条两成功，抽两条", "args": [5, 2, 2], "expected": 0.7},
+    {"name": "样例 2：抽四条，失败记录只有三条", "args": [5, 2, 4], "expected": 1.0},
+    {"name": "样例 3：抽一条就是成功率", "args": [5, 2, 1], "expected": 0.4},
+    {"name": "一条都没成功", "args": [5, 0, 3], "expected": 0.0},
+    {"name": "最小输入", "args": [1, 1, 1], "expected": 1.0},
+    {"name": "最小输入，失败", "args": [1, 0, 1], "expected": 0.0},
+    {"name": "全部成功", "args": [5, 5, 1], "expected": 1.0},
+    {"name": "失败记录正好 k 条", "args": [5, 2, 3], "expected": 0.9},
+    {"name": "结果很小：十万条里只有一条成功", "args": [100000, 1, 1], "expected": 1e-05},
+    {"name": "大数：n = 100000，k = 50000", "args": [100000, 3, 50000], "expected": 0.8750037500375004},
+    {"name": "大数：n = 100000，c = 100，k = 1000", "args": [100000, 100, 1000], "expected": 0.6341507511953773},
+    {"name": "k 大于 n", "args": [3, 1, 4], "raises": true},
+    {"name": "k 为 0", "args": [3, 1, 0], "raises": true},
+    {"name": "c 大于 n", "args": [3, 4, 1], "raises": true}
+  ]
+}

@@ -1,0 +1,166 @@
+---
+title: 工具名只生成了一半，下一步允许输出什么
+description: 把合法工具名建成前缀树，顺着已生成的前缀走到节点，读出下一步允许的字符和能否结束。
+sidebar:
+  label: 30. 前缀树约束工具名
+  order: 30
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Graph, Grid, Stepper, Step } from '~/components/viz';
+
+export const pos = {
+  root: [150, 28], g: [150, 110], ge: [80, 192], go: [220, 192],
+  get: [80, 274], gon: [220, 274], gone: [220, 356], gx: [330, 192],
+};
+export const ends = ['get', 'go', 'gone'];
+export const links = [['root', 'g'], ['g', 'ge'], ['g', 'go'], ['ge', 'get'], ['go', 'gon'], ['gon', 'gone']];
+export const trie = ({ path = [], next = [], ghost = false } = {}) => {
+  const cur = path[path.length - 1];
+  const ids = Object.keys(pos).filter((id) => id !== 'gx' || ghost);
+  return {
+    nodes: ids.map((id) => ({
+      id,
+      label: id === 'root' ? '根' : id,
+      x: pos[id][0],
+      y: pos[id][1],
+      shape: ends.includes(id) ? 'rect' : 'circle',
+      w: ends.includes(id) ? 54 : undefined,
+      tone: id === 'gx' ? 'warn' : id === cur ? 'strong' : path.includes(id) ? 'soft' : next.includes(id) ? 'accent' : 'default',
+    })),
+    edges: [
+      ...links.map(([a, b]) => ({
+        from: a,
+        to: b,
+        label: b.slice(-1),
+        tone: path.includes(b) || next.includes(b) ? 'accent' : 'default',
+        dashed: next.includes(b),
+      })),
+      ...(ghost ? [{ from: 'g', to: 'gx', label: 'x', tone: 'warn', dashed: true }] : []),
+    ],
+    width: 380,
+  };
+};
+export const frames = [
+  { path: ['root'], next: ['g'], prefix: '（空）', chars: '[g]', end: 'False',
+    caption: '前缀是空串，停在根上。根只有一条出边 `g`，所以第一个字符只能是 `g`。根没有盖章，不能结束。' },
+  { path: ['root', 'g'], next: ['ge', 'go'], prefix: 'g', chars: '[e, o]', end: 'False',
+    caption: '读 `g`，沿边走到节点 `g`。它有两条出边 `e` 和 `o`，排好序是 `[e, o]`。`g` 不是工具名，不能结束。' },
+  { path: ['root', 'g', 'go'], next: ['gon'], prefix: 'go', chars: '[n]', end: 'True',
+    caption: '读 `o`，走到 `go`。节点盖了章（方框），可以结束；还有出边 `n`，可以接着写成 `gone`。答案是 `([n], True)`。' },
+  { path: ['root', 'g', 'go', 'gon'], next: ['gone'], prefix: 'gon', chars: '[e]', end: 'False',
+    caption: '读 `n`，走到 `gon`。只能接 `e`，不能结束。' },
+  { path: ['root', 'g', 'go', 'gon', 'gone'], next: [], prefix: 'gone', chars: '[]', end: 'True',
+    caption: '读 `e`，走到 `gone`。没有出边，盖了章，只能结束。答案是 `([], True)`。' },
+  { path: ['root', 'g'], next: [], ghost: true, prefix: 'gx', chars: '[]', end: 'False',
+    caption: '换成前缀 `gx`：走到 `g` 后找不到出边 `x`，直接返回 `([], False)`。' },
+];
+
+<ProblemMeta slug="tool-name-trie" />
+
+## 题目
+
+实现类 `ToolNames`：给定一批工具名，对任一前缀，回答下一个字符可以是哪些，以及这个前缀本身是不是完整的工具名。
+
+- 构造函数接收合法工具名 `names`。每个名字是非空的小写英文字母串，可以重复。出现大写、下划线或空串时抛出 `ValueError`（TypeScript 抛 `Error`）。
+- `allowed(prefix)` 返回二元组 `(chars, can_end)`：`chars` 是下一步允许的字符，按字母顺序排好；`can_end` 表示 `prefix` 本身是否就是一个合法工具名。
+- 如果没有任何工具名以 `prefix` 开头（包括 `prefix` 里有大写等字符），返回 `([], False)`。`prefix` 可以是空串。
+
+预处理一次，之后会被查询很多次。
+
+## 样例
+
+合法名字为 `["go", "gone", "get"]`：
+
+| 前缀 | 返回 | 说明 |
+|---|---|---|
+| `"g"` | `(["e", "o"], False)` | 可以接 `get` 的 e，或 `go` 的 o |
+| `"go"` | `(["n"], True)` | `go` 已经是名字，也能继续写成 `gone` |
+| `"gone"` | `([], True)` | 只能结束 |
+| `"x"` | `([], False)` | 没有以 x 开头的名字 |
+
+`"go"` 这一行防最常见的错误：把“能结束”判断成“后面没有字符了”。`go` 后面还能接 `n`，但它自己也是完整的名字。
+
+## 思路
+
+把所有名字建成一棵前缀树。查询时沿前缀往下走，停下的节点的出边就是允许的字符，节点上的结束标记就是能否结束。
+
+这个查询在模型生成工具名的每一步都要调用。每次扫一遍 N 个名字太慢，希望一次查询只和前缀长度有关。`go`、`gone`、`get` 都以 `g` 开头，`go` 和 `gone` 又共用 `go`。把共用的开头合并成同一条路，就得到一棵树：每条边是一个字符，从根走到某个节点，经过的字符连起来正好是一个前缀。这种树叫**前缀树**（trie）。
+
+<Figure caption="`go`、`gone`、`get` 建成的前缀树。节点里写的是从根走到这里拼出的前缀，边上是这一步的字符。方框节点盖了“能结束”的章。">
+  <Graph {...trie()} />
+</Figure>
+
+建树时逐个写入名字。写 `gone`：从根走 `g`、`o`、`n`、`e`，没有的边就新建，最后在 `gone` 节点盖章。写 `go`：沿同一条路走到 `go`，也盖章。
+
+章要单独存成一个布尔值。`go` 节点盖了章，还有孩子 `n`。用“没有孩子”判断能否结束，`go` 会被判成不能结束；用“有章就不再往下建”，先插 `go` 再插 `gone`，`gone` 就建不出来。
+
+查询时顺着前缀逐个字符往下走：
+
+- 某一步找不到对应的边：没有名字以这个前缀开头，返回 `([], False)`。
+- 走完前缀，停在某个节点上：它的出边是允许的下一个字符，有没有章就是能不能结束。
+
+<Stepper title="依次查询 gone 的每个前缀（虚线箭头是下一步允许走的边），最后一帧是走不通的 gx">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div>
+          <Graph {...trie(f)} />
+        </div>
+        <div style="margin-top: 0">
+          <p class="viz-row-label">查询结果</p>
+          <Grid rows={[['前缀', f.prefix], ['允许', f.chars], ['能结束', f.end]]} />
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+出边恰好就是允许的字符。节点 `g` 有出边 `e`，当且仅当某个名字以 `ge` 开头，也就是在 `g` 后面写 `e` 还可能拼成工具名。所有以 `g` 开头的名字都经过节点 `g`，它们的第二个字符都是 `g` 的出边，不会漏。
+
+## 代码
+
+<Solution slug="tool-name-trie" />
+
+两个版本都把节点写成一个小类：`children` 是“字符 → 子节点”的字典，`end` 是章。Python 用 `dict`，TypeScript 用 `Map`。TypeScript 的 `[...keys].sort()` 不传比较函数时按 UTF-16 编码比较，对小写字母来说就是字母顺序，和 Python 的 `sorted` 一致。
+
+`walk` 单独写成一个方法，延伸里还会用到它。每次查询都返回新排好序的列表，调用方修改返回值不会影响树。
+
+## 复杂度
+
+S 是所有工具名的长度之和，p 是查询前缀的长度，d 是停下那个节点的孩子数（不超过 26）。
+
+- **建树：时间 O(S)，空间 O(S)**。每个字符最多新建一个节点。
+- **查询：时间 O(p + d log d)**。往下走 p 步，每步一次字典查找；最后给 d 个字符排序。d 不超过 26，可以看成 O(p)。
+
+## 自测：名字是另一个名字的前缀
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+名字为 `["gone", "go"]`（先插入长的），`allowed("go")` 应该是 `(["n"], True)`。如果你得到 `(["n"], False)`，说明你用“没有孩子”判断能否结束。如果得到 `([], True)`，说明建树时每一步都新建节点，插入 `go` 时把 `gone` 那条路换掉了，应该是“没有这条边才新建”。
+
+名字为 `["go", "gone", "get"]`，`allowed("")` 应该是 `(["g"], False)`。如果得到 `([], False)`，多半是把空前缀当成“查不到”提前返回了。空前缀停在根上，根的出边就是所有名字的首字母。
+</Aside>
+
+本页代码还测了前缀比所有名字都长、前缀里有大写字母、没有任何名字、名字重复、走到一半断掉，以及 49 个随机名字、50 次查询与暴力扫描的对拍。
+
+## 延伸：模型一次输出好几个字符呢？
+
+真实的模型一步输出的是一个 token，一个 token 可能对应好几个字符，比如 `one`、`et`。问题变成：给定已生成的前缀和词表 `vocab`，哪些 token 可以作为下一步？
+
+树不用改，改查询：先走完前缀到达节点，再从这个节点出发，把每个 token 的字符依次走一遍，全部走通才算合法。
+
+常见的错误是只看 token 的首字母。前缀 `g` 后面，`ox` 的首字母 `o` 是合法的出边，但 `go` 之后没有 `x`，`ox` 不能选。
+
+<Solution slug="tool-name-trie" file="followup" />
+
+名字 `["go", "gone", "get"]`，前缀 `g`，词表 `["o", "one", "et", "e", "ox", "on", "", "n"]`，结果是 `["e", "et", "o", "on", "one"]`。`n` 不行，因为 `g` 后面没有 `n`；空 token 什么也没生成，不算。
+
+每次查询要把整个词表试一遍，花 O(词表中 token 的总长度)。词表很大时，可以反过来把词表也建成前缀树，两棵树同时往下走，只访问两边都有的分支。
+
+## 参考
+
+- [力扣 208 · 实现 Trie（前缀树）](https://leetcode.cn/problems/implement-trie-prefix-tree/)
+- 同样一边读输入一边判断“下一步还能接什么”的题：<ProblemLink slug="streaming-think-filter" />

@@ -1,0 +1,147 @@
+---
+title: 求同时含有几个词的文档编号
+description: 几张升序的倒排表求公共文档编号：从最短的表出发，两两用双指针合并，总时间与表的总长度成正比。
+sidebar:
+  label: 7. 同时含有几个词的文档
+  order: 7
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Stepper, Step } from '~/components/viz';
+
+export const t = (arr, at, keep, gone) =>
+  arr.map((_, k) => (k === at ? 'strong' : keep.includes(k) ? 'soft' : gone.includes(k) ? 'muted' : 'default'));
+export const frames = [
+  {
+    res: [2, 8, 9], other: [2, 5, 8, 13], i: 0, j: 0, rt: t([2, 8, 9], 0, [], []), ot: t([2, 5, 8, 13], 0, [], []), common: [2],
+    caption: '第一轮：当前结果是最短的表 `[2, 8, 9]`，和 `[2, 5, 8, 13]` 合并。两边都是 2，记下 2，`i`、`j` 都前进。',
+  },
+  {
+    res: [2, 8, 9], other: [2, 5, 8, 13], i: 1, j: 1, rt: t([2, 8, 9], 1, [0], []), ot: t([2, 5, 8, 13], 1, [0], []), common: [2],
+    caption: '8 对 5。5 更小，当前结果往右只会更大，5 碰不到相等的数。丢掉 5，`j` 前进。',
+  },
+  {
+    res: [2, 8, 9], other: [2, 5, 8, 13], i: 1, j: 2, rt: t([2, 8, 9], 1, [0], []), ot: t([2, 5, 8, 13], 2, [0], [1]), common: [2, 8],
+    caption: '8 对 8，相等，记下 8，两边都前进。',
+  },
+  {
+    res: [2, 8, 9], other: [2, 5, 8, 13], i: 2, j: 3, rt: t([2, 8, 9], 2, [0, 1], []), ot: t([2, 5, 8, 13], 3, [0, 2], [1]), common: [2, 8],
+    caption: '9 对 13。9 更小，丢掉 9，`i` 走到头。第一轮结束，当前结果变成 `[2, 8]`；13 不用再看。',
+  },
+  {
+    res: [2, 8], other: [1, 2, 8, 20], i: 0, j: 0, rt: t([2, 8], 0, [], []), ot: t([1, 2, 8, 20], 0, [], []), common: [],
+    caption: '第二轮：拿 `[2, 8]` 去碰 `[1, 2, 8, 20]`。2 对 1，1 更小，丢掉 1，`j` 前进。',
+  },
+  {
+    res: [2, 8], other: [1, 2, 8, 20], i: 0, j: 1, rt: t([2, 8], 0, [], []), ot: t([1, 2, 8, 20], 1, [], [0]), common: [2],
+    caption: '2 对 2，记下 2，两边前进。',
+  },
+  {
+    res: [2, 8], other: [1, 2, 8, 20], i: 1, j: 2, rt: t([2, 8], 1, [0], []), ot: t([1, 2, 8, 20], 2, [1], [0]), common: [2, 8],
+    caption: '8 对 8，记下 8。`i` 走到头，20 不用再看。三张表都处理完，答案是 `[2, 8]`。',
+  },
+  {
+    res: [2, 8, 9], other: [2, 5, 8, 13], i: 2, j: 1, rt: ['soft', 'warn', 'warn'], ot: t([2, 5, 8, 13], 1, [0], []), common: [2], wrong: true,
+    caption: '错误做法：回到第二帧，8 对 5 时挪了数值大的一边。`i` 跳过 8 去看 9，8 被扔掉，最后只得到 `[2]`。',
+  },
+];
+
+<ProblemMeta slug="posting-list-intersection" />
+
+## 题目
+
+倒排索引给每个词存一张表，表里是含有这个词的文档编号，升序排列，同一张表里没有重复。给定若干张这样的表，返回在每一张表里都出现的编号，按升序排列。
+
+- 一张表都没有，返回空列表。
+- 任何一张表是空的，返回空列表。
+- 不能改动输入的表。
+- 要利用表已经有序，不要先把编号倒进集合再求交。
+
+## 样例
+
+| 输入 `lists` | 输出 | 说明 |
+|---|---|---|
+| `[[2, 5, 8, 13], [1, 2, 8, 20], [2, 8, 9]]` | `[2, 8]` | 2 和 8 在三张表里都有 |
+| `[[1, 3], [3, 4], []]` | `[]` | 有一张空表 |
+| `[]` | `[]` | 没有任何表 |
+
+第一个样例检查指针有没有挪对。合并 `[2, 8, 9]` 和 `[2, 5, 8, 13]` 时会遇到 8 对 5，该丢的是小的 5。挪了大的那边，8 会被跳过，结果只剩 `[2]`。
+
+第三个样例检查 `set.intersection(*map(set, lists))` 这种写法：参数为空时 Python 会直接报错。
+
+## 思路
+
+从最短的表起步，和其余的表逐张做双指针合并：两个数相等就记下，不等就扔掉较小的那个。
+
+先看两张表 `[2, 8, 9]` 和 `[2, 5, 8, 13]`。`i` 指第一张，`j` 指第二张，都从 0 开始，每次比较两个下标指着的数：
+
+- 相等：这个编号两张表都有，记下来，`i`、`j` 都往后走一格。
+- 不相等：较小的数不可能是答案，它那边的下标往后走一格。
+
+以 8 对 5 为例。第一张表在 `i` 左边只有 2，比 5 小；`i` 往右是 8、9，更大。5 在第一张表里找不到相等的数，丢掉它不会漏答案。
+
+这和归并排序里的合并一样，两个下标都只往右走。任何一个走到头就停，剩下的数在另一张表里已经没有对手。
+
+多张表就两两合并：第一轮的结果 `[2, 8]` 作为新的当前结果，再去碰下一张表。下面把样例完整走一遍，最后一帧是挪错指针的后果。
+
+<Stepper title="三张表两两合并">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <ArrayCells label="当前结果" values={f.res} tones={f.rt} pointers={[{ at: f.i, label: 'i', tone: f.wrong ? 'warn' : 'accent' }]} cell={46} />
+      <ArrayCells label="待合并表" values={f.other} tones={f.ot} pointers={[{ at: f.j, label: 'j', side: 'bottom' }]} cell={46} index={false} />
+      <ArrayCells label="公共编号" values={f.common.length ? f.common : ['']} tones={f.common.length ? f.common.map(() => 'done') : ['ghost']} cell={46} index={false} />
+    </Step>
+  ))}
+</Stepper>
+
+代码先按长度排序，从最短的 `[2, 8, 9]` 起步。当前结果是交集，长度不会超过最短的表；一开始就用最短的，后面每一轮比较次数都更少。当前结果一旦变空，剩下的表就不用看了。
+
+## 代码
+
+<Solution slug="posting-list-intersection" />
+
+Python 的 `sorted` 返回新列表。JavaScript 的 `sort` 会原地改动数组，所以 TypeScript 版先用 `[...lists]` 复制一份再排序，不动输入。两种语言的排序都稳定，长度相同的表保持原来的先后，但先后不影响结果。
+
+## 复杂度
+
+m 是表的张数，n 是所有表的总长度，s 是最短那张表的长度。
+
+- **时间 O(m log m + n)**：按长度排序用 O(m log m)。每一轮合并时，下标每走一步都扔掉一个数，所以这一轮最多走“当前结果长度 + 新表长度”步。当前结果不比新表长，每轮不超过新表长度的两倍，加起来是 O(n)。
+- **空间 O(m + s)**：排好序的表引用占 O(m)，当前结果和这一轮的公共编号都不超过 s 个数。
+
+## 自测：两个容易写错的输入
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`[[2, 8, 9], [2, 5, 8, 13]]` 的正确答案是 `[2, 8]`。如果你得到 `[2]`，多半是不相等时挪了数值大的那一边。
+
+`[[1, 3, 5, 7], [1, 3, 5, 7], [3, 5]]` 的正确答案是 `[3, 5]`。如果你得到 `[1, 3, 5, 7]`，说明只合并了前两张表，最后一张没有参与。
+</Aside>
+
+本页代码还对没有输入、只有一张表、合并到一半就清空、两张表一样长，以及四张随机表（和集合求交的结果对照）跑过测试。
+
+## 延伸：一张表只有 3 个编号，另一张有 1000 万个呢？
+
+双指针合并要走 O(3 + 10⁷) 步，几乎都花在长表上逐个往前挪，而短表只有 3 个数要确认。
+
+如果长表能按下标随机读取，就让短表里每个编号到长表里**二分查找**。一次二分在 10⁷ 个数里最多比较 24 次（2²⁴ ≈ 1.7 × 10⁷），3 个编号合计不到 75 次。
+
+短表是升序的，上一个编号在长表里停在位置 `lo`，下一个编号只需从 `lo` 往后找。
+
+<Solution slug="posting-list-intersection" file="followup" />
+
+用短表 `[3, 500, 9999]` 和长表“0 到 9999 之间 3 的倍数”（3334 个数）试一下：3 和 9999 是 3 的倍数，500 不是，结果是 `[3, 9999]`。
+
+时间是 O(s log L)，s 是短表长度，L 是长表长度。两张表差不多长时，二分反而比双指针慢，O(s log L) 会超过 O(s + L)。
+
+这个改法要求长表能随机访问。真实的倒排表常常压缩存储，只能从头往后解码，没法二分。信息检索教材的做法是给长表加跳表指针：每隔约 √L 个编号存一个跳转位置。比较时，如果跳过去的编号仍然不比目标大，就整段跳过。
+
+## 参考
+
+- [Manning 等，《信息检索导论》1.3 节：布尔查询的处理](https://nlp.stanford.edu/IR-book/html/htmledition/processing-boolean-queries-1.html)
+- [同书 2.3 节：用跳表指针加速倒排表求交](https://nlp.stanford.edu/IR-book/html/htmledition/faster-postings-list-intersection-via-skip-pointers-1.html)
+- [力扣 349 · 两个数组的交集](https://leetcode.cn/problems/intersection-of-two-arrays/)
+- [Python 文档：bisect 模块](https://docs.python.org/zh-cn/3/library/bisect.html)
+- 也是在升序数据上用两个下标往前推的题：<ProblemLink slug="merge-hit-spans" />

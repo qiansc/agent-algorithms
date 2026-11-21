@@ -1,0 +1,165 @@
+---
+title: 给定随机数，Top-p 会抽中哪个 token
+description: 按概率降序保留累计达到 p 的最短前缀，再用给定的随机数在保留部分里抽一个编号。
+sidebar:
+  label: 32. Top-p 抽中哪个 token
+  order: 32
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Bars, Lanes, Stepper, Step } from '~/components/viz';
+
+export const sorted = [
+  { id: 1, p: 0.5 },
+  { id: 2, p: 0.25 },
+  { id: 0, p: 0.125 },
+  { id: 3, p: 0.125 },
+];
+export const segs = [
+  { start: 0, end: 0.5, label: '编号 1' },
+  { start: 0.5, end: 0.75, label: '编号 2' },
+  { start: 0.75, end: 0.875, label: '编号 0' },
+  { start: 0.875, end: 1, label: '编号 3' },
+];
+export const frames = [
+  {
+    bars: ['default', 'default', 'default', 'default'], lane: ['default', 'default', 'default', 'default'], marks: [],
+    caption: '降序排：编号 1、2、0、3。0 和 3 都是 0.125，编号小的 0 在前。下方把它们首尾相接铺在 [0, 1) 上。',
+  },
+  {
+    bars: ['strong', 'default', 'default', 'default'], lane: ['accent', 'default', 'default', 'default'], marks: [{ at: 0.7, label: 'p = 0.7', tone: 'accent' }],
+    caption: '留下编号 1，累计 0.5，小于 0.7，继续。',
+  },
+  {
+    bars: ['accent', 'strong', 'default', 'default'], lane: ['accent', 'accent', 'default', 'default'], marks: [{ at: 0.7, label: 'p = 0.7', tone: 'accent' }],
+    caption: '留下编号 2，累计 0.75 ≥ 0.7，停。跨过阈值的编号 2 也要留下。',
+  },
+  {
+    bars: ['accent', 'accent', 'muted', 'muted'], lane: ['accent', 'accent', 'muted', 'muted'], marks: [],
+    caption: '丢掉编号 0 和 3。保留部分总长 `mass = 0.75`：编号 1 占 [0, 0.5)，编号 2 占 [0.5, 0.75)。',
+  },
+  {
+    bars: ['accent', 'accent', 'muted', 'muted'], lane: ['accent', 'accent', 'muted', 'muted'], marks: [{ at: 0.6, label: 'u × mass = 0.6', tone: 'accent' }],
+    caption: '不归一化，把 u 缩放到这段长度上：0.8 × 0.75 = 0.6。',
+  },
+  {
+    bars: ['accent', 'strong', 'muted', 'muted'], lane: ['done', 'strong', 'muted', 'muted'], marks: [{ at: 0.6, label: '0.6', tone: 'accent' }],
+    caption: '找第一个右端点大于 0.6 的段：0.5 不是，0.75 是。答案是 2。',
+  },
+  {
+    bars: ['strong', 'warn', 'muted', 'muted'], lane: ['strong', 'warn', 'muted', 'muted'], marks: [{ at: 0.375, label: '0.375', tone: 'accent' }, { at: 0.5, label: '0.5？', tone: 'warn' }],
+    caption: '样例 2 的 u = 0.5。缩放后是 0.375，落在编号 1。忘了缩放直接拿 0.5 比，会落到编号 2 的左端点，错成 2。',
+  },
+];
+
+<ProblemMeta slug="top-p-sampling" />
+
+## 题目
+
+实现 Top-p 采样（也叫 nucleus 采样）`nucleus_draw(probs, p, u)`：给定下一个 token 的概率分布 `probs` 和随机数 `u`，返回抽中的编号（从 0 开始）。
+
+1. 按概率降序排列编号；概率相同时，编号小的在前。
+2. 从头累加，保留累计概率第一次 `≥ p` 时的最短前缀。概率为 0 的编号不保留。
+3. 保留部分按原比例归一化后铺在 [0, 1) 上，每个编号占一段左闭右开区间。`u` 落在哪段就返回哪个编号。
+
+- 输入：`probs` 非空、各项非负、和为 1；`0 < p ≤ 1`；`0 ≤ u < 1`。
+- `probs` 为空、有负数，或 `p`、`u` 超出范围时，Python 抛 `ValueError`，TypeScript 抛 `RangeError`。
+
+## 样例
+
+| 输入 | 输出 | 说明 |
+|---|---|---|
+| `probs=[0.125, 0.5, 0.25, 0.125]`, `p=0.7`, `u=0.8` | `2` | 保留编号 1、2，0.8 落在后一段 |
+| `probs=[0.125, 0.5, 0.25, 0.125]`, `p=0.7`, `u=0.5` | `1` | 同样保留 1、2，0.5 落在前一段 |
+| `probs=[0.25, 0.25, 0.5]`, `p=0.6`, `u=0.9` | `0` | 两个 0.25 并列，编号 0 先进来 |
+| `probs=[0.7, 0.1, 0.1, 0.1]`, `p=0.9`, `u=0.99` | `2` | 累计到第三项正好是 0.9，停 |
+
+样例 2 防“忘了把 u 换算到保留部分”：直接拿 0.5 和累计值 0.5、0.75 比，会得到 2。样例 3 防并列排错：编号大的先进来，答案会变成 1。样例 4 是浮点陷阱，见“自测”。
+
+## 思路
+
+排序后从头累加，够 p 就停；再把 `u` 乘以保留部分的总量，找第一个大于它的累计值。
+
+拿样例 1 走一遍。降序是编号 1（0.5）、编号 2（0.25）、编号 0 和 3（都是 0.125，0 在前）。
+
+累加：编号 1 后是 0.5，不够 0.7；加上编号 2 是 0.75，停。保留 {1, 2}，总量 `mass = 0.75`。
+
+跨过阈值的编号 2 要留下。只留编号 1，累计只有 0.5，达不到 p。所以代码先 `append`，再判断 `mass >= p`。
+
+按定义要先归一化：编号 1 占 0.5 / 0.75 = 2/3，编号 2 占 1/3，两段是 [0, 2/3) 和 [2/3, 1)。0.8 落在第二段，答案是 2。
+
+这次除法可以省掉。把整条线按 0.75 等比缩短，两段变成 [0, 0.5) 和 [0.5, 0.75)，正好是原始累计值。u 也缩成 0.8 × 0.75 = 0.6，仍在第二段。所以只要找第一个严格大于 0.6 的累计值：0.75，对应编号 2。
+
+<Stepper title="样例 1 和样例 2：排序、截断、抽签">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div>
+          <p class="viz-row-label">按概率降序</p>
+          <Bars items={sorted.map((s, i) => ({ label: `编号 ${s.id}`, value: s.p, tone: f.bars[i], text: String(s.p) }))} max={0.5} digits={3} barHeight={110} />
+        </div>
+        <div>
+          <p class="viz-row-label">累计概率铺成的线段</p>
+          <Lanes
+            lanes={[{ label: '累计', items: segs.map((s, i) => ({ ...s, tone: f.lane[i] })) }]}
+            from={0}
+            to={1}
+            scale={440}
+            ticks={[0, 0.5, 0.75, 0.875, 1]}
+            marks={f.marks}
+          />
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+比较用严格小于。编号 1 的区间是 [0, 0.5)，0.5 这个点属于下一段。`point < boundary` 问的是“point 在不在这段右端点左边”，第一个成立的段就是答案。改成 `<=`，落在分界点上的 point 会被分给左边那段。
+
+按理循环一定会返回，因为 `point = u × mass` 严格小于最后一个累计值 `mass`。但浮点乘法可能把 `point` 舍入成正好等于 `mass`，所以末尾补一句返回最后一个保留编号。
+
+## 代码
+
+<Solution slug="top-p-sampling" />
+
+两个版本的结构一样。排序处 Python 用元组键 `(-probs[i], i)`，TypeScript 用比较函数 `probs[b] - probs[a] || a - b`：概率相同时差为 0，`||` 落到按编号升序。不要依赖“排序稳定，原顺序就是编号顺序”这件事去省略第二个键，写出来更不容易出错。参数检查里 TypeScript 用了 `!(p > 0 && p <= 1)` 这种写法，是为了让 `NaN` 也被拒绝。
+
+## 复杂度
+
+V 是 `probs` 的长度，也就是候选 token 的个数。
+
+- **时间 O(V log V)**：排序占大头。截断和抽签各扫一遍保留集合，最多 O(V)。
+- **空间 O(V)**：排序后的编号列表和保留集合。
+
+## 自测：三个容易错的输入
+
+<Aside type="caution" title="先算出答案，再跑代码">
+`probs = [0.125, 0.5, 0.25, 0.125], p = 0.7, u = 0.5` 的答案是 1。如果你得到 2，是把 u 直接和原始累计值 0.5、0.75 比了，没有先乘以 `mass = 0.75`。
+
+`probs = [0.25, 0.25, 0.5], p = 0.6, u = 0.9` 的答案是 0。保留的是编号 2 和编号 0，`point = 0.9 × 0.75 = 0.675`，落在编号 0 的 [0.5, 0.75)。得到 1 说明并列时没有让编号小的先排。
+
+`probs = [0.7, 0.1, 0.1, 0.1], p = 0.9, u = 0.99` 的答案是 2。在双精度浮点里 0.7 + 0.1 + 0.1 算出来是 0.8999999999999999，比 0.9 小一点点。如果判断写成严格的 `mass >= p`，会多留一个编号 3，`point` 变成 0.99 左右，答案错成 3。本页代码用 `mass >= p - 1e-12` 吸收这类误差。
+</Aside>
+
+本页代码对上面三个输入、累计恰好等于 p、只有一个 token、最大项单独超过 p、含 0 概率的分布、一个 12 个 token 的随机分布以及三种非法参数都跑过测试。
+
+## 延伸：分布不变，要抽十万次呢？
+
+`probs` 和 `p` 固定，只是 `u` 换了十万个。原解法每次都重新排序，十万次就是十万次 O(V log V)，大部分工作是重复的。
+
+排序和截断只取决于 `probs` 和 `p`，做一次就够。存下两张表：保留的编号 `ids` 和它们的累计值 `ends`。样例 1 里 `ids = [1, 2]`，`ends = [0.5, 0.75]`。之后每次抽样只剩“在 `ends` 里找第一个严格大于 `point` 的位置”，`ends` 是递增的，可以二分。
+
+Python 有现成的 `bisect_right`：它返回的正是第一个严格大于目标值的下标。`u = 0.8` 时 `point = 0.6`，`bisect_right([0.5, 0.75], 0.6) = 1`，`ids[1] = 2`。用 `bisect_left` 就错了：`u = 2/3` 时 `point = 0.5`，`bisect_left` 返回 0，把分界点分给了编号 1，违反左闭右开。TypeScript 没有内置二分，下面的版本手写了一个等价的 `bisect_right`。
+
+<Solution slug="top-p-sampling" file="followup" />
+
+预处理 O(V log V) 只做一次，之后每次抽样 O(log K)，K 是保留下来的编号个数，最多是 V。p 很小或者分布很尖时 K 往往只有几个，二分几乎没有开销。测试里把四种 p 下的 100 个 u 都和原解法对拍过，结果一致。
+
+## 参考
+
+- [Holtzman et al., The Curious Case of Neural Text Degeneration（Top-p 采样原论文）](https://arxiv.org/abs/1904.09751)
+- [Python 文档 · bisect](https://docs.python.org/zh-cn/3/library/bisect.html)
+- 采样前的概率怎么来：<ProblemLink slug="masked-softmax" />；把重复惩罚、温度和 Top-k 串起来：<ProblemLink slug="sampling-penalties" />

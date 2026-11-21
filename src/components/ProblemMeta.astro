@@ -1,0 +1,37 @@
+---
+import { getProblem, groupName } from '../data/problems';
+
+interface Props {
+  slug: string;
+}
+
+const p = getProblem(Astro.props.slug);
+const level = { 简单: 'easy', 中等: 'medium', 困难: 'hard' }[p.difficulty];
+---
+
+<p class="problem-meta">
+  <span>第 {p.number} 题</span>
+  <span>{groupName(p.group)}</span>
+  <span class={`difficulty-text difficulty-${level}`}>{p.difficulty}</span>
+  <span>约 {p.minutes} 分钟</span>
+  {p.level === '进阶' && <span class="problem-meta-tag">进阶</span>}
+</p>
+
+<style>
+  .problem-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.9rem;
+    margin: 0 0 1.5rem;
+    font-size: 0.875rem;
+    color: var(--sl-color-gray-3);
+  }
+  .problem-meta span + span::before {
+    content: '·';
+    margin-inline-end: 0.9rem;
+    color: var(--sl-color-gray-4);
+  }
+  .problem-meta-tag {
+    color: var(--sl-color-accent);
+  }
+</style>

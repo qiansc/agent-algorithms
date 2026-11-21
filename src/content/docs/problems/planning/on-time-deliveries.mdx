@@ -1,0 +1,199 @@
+---
+title: 一位骑手，最多能准时送达几单
+description: 订单按截止时间排序，用最大堆记下已接订单的时长，超时就退掉最长的一单，求最多准时单数。
+sidebar:
+  label: 23. 最多能准时送达几单
+  order: 23
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Grid, Lanes, Stepper, Step } from '~/components/viz';
+
+export const names = ['A', 'B', 'C', 'D'];
+export const orderRows = [[5, 2, 2, 3], [5, 6, 7, 8]];
+export const frames = [
+  {
+    cur: null, chosen: [], dropped: [], bars: [], mark: null, heap: [], total: 0,
+    caption: '四单按截止时间排好：A、B、C、D。堆是空的，`total = 0`。',
+  },
+  {
+    cur: 0, chosen: [], dropped: [], bars: [{ start: 0, end: 5, label: 'A', tone: 'accent' }], mark: [5, 'A 截止 5'],
+    heap: ['A 5'], total: 5,
+    caption: '看 A：接下，`total = 0 + 5 = 5`，正好等于截止时间 5，算准时。',
+  },
+  {
+    cur: 1, chosen: [0], dropped: [], bars: [{ start: 0, end: 5, label: 'A', tone: 'soft' }, { start: 5, end: 6, label: 'B', tone: 'warn' }, { start: 6, end: 7, label: '超 1', tone: 'warn' }],
+    mark: [6, 'B 截止 6'], heap: ['A 5', 'B 2'], total: 7, heapTones: [null, 'strong'],
+    caption: '看 B：先接下，`total = 5 + 2 = 7`，超过 B 的截止时间 6。A 和 B 不能都要。',
+  },
+  {
+    cur: 1, chosen: [], dropped: [0], bars: [{ start: 0, end: 2, label: 'B', tone: 'accent' }], mark: [6, 'B 截止 6'],
+    heap: ['B 2'], total: 2,
+    caption: '堆顶是最长的 A（5 分钟），退掉：`total = 7 − 5 = 2`。还是一单，但只占 2 分钟，比留 A 早空出 3 分钟。',
+  },
+  {
+    cur: 2, chosen: [1], dropped: [0], bars: [{ start: 0, end: 2, label: 'B', tone: 'soft' }, { start: 2, end: 4, label: 'C', tone: 'accent' }],
+    mark: [7, 'C 截止 7'], heap: ['B 2', 'C 2'], total: 4, heapTones: [null, 'strong'],
+    caption: '看 C：`total = 2 + 2 = 4`，不超过 7，直接留下。堆里是 B、C 各 2 分钟。',
+  },
+  {
+    cur: 3, chosen: [1, 2], dropped: [0], bars: [{ start: 0, end: 2, label: 'B', tone: 'soft' }, { start: 2, end: 4, label: 'C', tone: 'soft' }, { start: 4, end: 7, label: 'D', tone: 'accent' }],
+    mark: [8, 'D 截止 8'], heap: ['D 3', 'B 2', 'C 2'], total: 7, heapTones: ['strong'],
+    caption: '看 D：`total = 4 + 3 = 7`，不超过 8，留下。D 是 3 分钟，上浮到堆顶。堆里有 3 单，答案是 3。',
+  },
+];
+
+export function orderTones(f) {
+  const t = {};
+  for (const i of f.dropped) { t[`0,${i}`] = 'muted'; t[`1,${i}`] = 'muted'; }
+  for (const i of f.chosen) { t[`0,${i}`] = 'soft'; t[`1,${i}`] = 'soft'; }
+  if (f.cur !== null) { t[`0,${f.cur}`] = 'strong'; t[`1,${f.cur}`] = 'strong'; }
+  return t;
+}
+
+<ProblemMeta slug="on-time-deliveries" />
+
+## 题目
+
+一位骑手一次只送一单，送完回到店里再送下一单。求最多能准时送完几单，只返回单数。
+
+- 输入：`orders[i] = [d, D]`。`d` 是这一单从出发到回店的分钟数，正整数；`D` 是最晚第几分钟要回到店里，非负整数。
+- 骑手第 0 分钟出发，单与单之间不休息。第 `t` 分钟回店时 `t ≤ D` 就算准时。
+- 没送的单直接放弃，不影响别的单。列表为空返回 0。
+- `d < 1`、`D < 0` 或某一单不是两个数时，抛出异常。
+
+## 样例
+
+| `orders` | 输出 | 说明 |
+|---|---|---|
+| `[[5,5],[2,6],[2,7],[3,8]]` | `3` | 送后三单：第 2、4、7 分钟回到店里 |
+| `[[100,200],[200,1300],[1000,1250],[2000,3200]]` | `3` | 四单的总时长 3300 超过最晚的 3200，只能送三单 |
+| `[[3,2]]` | `0` | 这一单本身就来不及 |
+
+下面把样例 1 的四单叫作 A、B、C、D。它专门卡“按截止时间看，能接就接、接不下就跳过”。这样会接 A（第 5 分钟回来）；B 要到第 7 分钟，超过 6，跳过；C 第 7 分钟回来，接；D 要到第 10 分钟，超过 8，跳过。只送了 2 单，正确答案是 3。
+
+## 思路
+
+按截止时间排序后逐单接下；一旦超时，就退掉已接单里最长的那一单。用最大堆找最长的单。
+
+问题分两半：选哪几单，选定后按什么顺序送。
+
+选定之后，按截止时间从早到晚送就行。假设某方案里，截止晚的单紧挨着排在截止早的单前面。把两单对调，它们整体的结束时刻 `T` 不变。原来排后面的是早截止那单，它在 `T` 回来且准时，所以 `T` 也不超过晚截止那单的截止时间。对调后两单都准时。一直对调，就得到按截止时间排序的方案。所以一组单能否全部准时，按截止时间排好、算一遍前缀和就知道。
+
+于是把订单按 `D` 从小到大排序，逐单看。已接的单按截止时间连着送，`total` 是送完最后一单回店的时刻。新单截止最晚，排在最后，在 `total + d` 回来。
+
+- `total + d ≤ D`：直接接下，前面的单回来时刻不变。
+- `total + d > D`：至少要退掉一单。
+
+退已接单里最长的那一单。在 B 这一步，A 和 B 只能留一个，留谁都是 1 单。区别在占用时间：A 占 5 分钟，B 只占 2 分钟。后面的单截止更晚，只关心前面一共占了多少分钟，越少越好。留 B 让后面早 3 分钟出发，C 和 D 刚好都赶上：2 + 2 + 3 = 7，不超过 D 的截止时间 8。
+
+用最大堆存已接单的时长，堆顶就是最长的那单，放入和弹出都是 O(log n)。
+
+<Stepper title="样例 1：按截止时间依次看 A、B、C、D">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <p class="viz-row-label">订单（按截止时间排好）</p>
+      <Grid rows={orderRows} rowHeaders={['时长 d', '截止 D']} colHeaders={names} tones={orderTones(f)} cellWidth={48} />
+      <p class="viz-row-label">已接的单连着送（total = {f.total}）</p>
+      <Lanes
+        lanes={[{ label: '骑手', items: f.bars }]}
+        from={0}
+        to={8}
+        scale={52}
+        marks={f.mark ? [{ at: f.mark[0], label: f.mark[1], tone: f.bars.some((b) => b.tone === 'warn') ? 'warn' : 'accent' }] : []}
+        unit=""
+      />
+      <ArrayCells
+        label="最大堆"
+        values={f.heap.length ? f.heap : ['空']}
+        tones={f.heap.length ? (f.heapTones ?? []) : ['ghost']}
+        index={false}
+        cell={56}
+      />
+    </Step>
+  ))}
+</Stepper>
+
+为什么退一单就够？退之前那组单全部准时。新单入堆后弹出最长的 `x`，`x` 至少和新单一样长：
+
+- `x` 是新单：等于没接它，回到原来那组。
+- `x` 是旧单：`x` 前面的单不变；后面的单都提前了 `x` 的时长；新单在 `total − x + d` 回来，不超过原来的 `total`。原来的 `total` 不超过上一单的截止时间，也就不超过新单的。
+
+为什么单数最多？算法一直保持这个状态：看完前 i 单后，堆里的单数是前 i 单最多能准时送的单数；在所有单数最多的选法里，堆里这组总时长最短。新单能接就接，单数加一；接不下时单数不变，换掉最长的一单让总时长最短。两种情况都保持了这个状态。
+
+<Figure caption="样例 1 两种做法的时间线。上：接不下就跳过，A 占掉前 5 分钟，D 第 10 分钟才回来，超 2 分钟。下：退掉最长的 A，B、C、D 在第 2、4、7 分钟回店。">
+  <Lanes
+    lanes={[
+      { label: '接不下就跳过', items: [{ start: 0, end: 5, label: 'A', tone: 'soft' }, { start: 5, end: 7, label: 'C', tone: 'soft' }, { start: 7, end: 8, label: 'D', tone: 'warn' }, { start: 8, end: 10, label: '超 2', tone: 'warn' }] },
+      { label: '退掉最长的', items: [{ start: 0, end: 2, label: 'B', tone: 'accent' }, { start: 2, end: 4, label: 'C', tone: 'accent' }, { start: 4, end: 7, label: 'D', tone: 'accent' }] },
+    ]}
+    from={0}
+    to={10}
+    scale={44}
+    marks={[{ at: 8, label: 'D 截止 8', tone: 'warn' }]}
+  />
+</Figure>
+
+样例 2 也这样走：排序后是 `[100,200]`、`[1000,1250]`、`[200,1300]`、`[2000,3200]`。前三单的 `total` 依次是 100、1100、1300，都没超时。第四单让 `total` 变成 3300，超过 3200，堆顶是 2000 这单本身，退掉它，`total` 回到 1300，答案 3。
+
+## 代码
+
+<Solution slug="on-time-deliveries" />
+
+Python 的 `heapq` 只有最小堆，存进去的是时长的相反数，弹出来再加回 `total`。TypeScript 没有现成的堆，`solution.ts` 里手写了一个最大堆 `MaxHeap`：`push` 把新元素放到数组末尾再往上浮，`pop` 拿走堆顶、把末尾元素挪上来再往下沉。排序时两种语言都只按截止时间比较，截止时间相同的单谁先谁后都不影响答案；TypeScript 的 `sort` 要传比较函数，不传会按字符串排序，`1300` 会排在 `200` 前面。
+
+## 复杂度
+
+n 是订单数。
+
+- **时间 O(n log n)**：排序 O(n log n)；之后每单最多入堆一次、出堆一次，每次 O(log n)。
+- **空间 O(n)**：排序后的副本和堆，堆里最多 n 个时长。
+
+## 自测：两个容易写错的输入
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`[[5,5],[2,6],[2,7],[3,8]]` 的正确答案是 3。如果得到 2，多半是接不下时直接跳过了新单，没有和已接单里最长的那单比较。
+
+`[[2,2],[1,3]]` 的正确答案是 2：先送 2 分钟那单，第 2 分钟回来，再送 1 分钟那单，第 3 分钟回来。如果得到 1，多半是按时长从短到长排了序，先送了 1 分钟那单，另一单就赶不上了。
+</Aside>
+
+还有一处边界：`[[5,5]]` 的答案是 1。第 5 分钟回到店里算准时，判断超时要写 `total > D`，写成 `>=` 会得到 0。
+
+## 延伸：每单有价值，要总价值最大呢？
+
+每一单多了一个价值 `v`，输入变成 `[d, D, v]`，要让准时送达的单的总价值最大。
+
+原来的贪心不能用了。它靠的是“单数一样时占时越短越好”，现在比的是价值，一单长的可能比两单短的更值钱。看 `[[3,3,10],[1,2,2],[1,3,2]]`，三单叫 A、B、C。按单数贪心：先接 B（截止 2），再接 A 时 `total = 4 > 3`，退掉最长的 A，最后留下 B、C，两单价值 4。只送 A 一单，价值是 10。
+
+改成“退价值最低的”也不对。看 `[[1,2,6],[1,2,5],[2,2,10]]`，三单 P、Q、R 截止都是 2。P、Q 接下后 `total = 2`；R 来了变成 4，退掉价值最低的 Q 还剩 3，仍超时，再退 P，只剩 R，价值 10。可 P、Q 一起送正好第 2 分钟回来，价值 11。
+
+前半部分的结论还在：选定一组单后，按截止时间送最好。所以仍按 `D` 排序，逐单决定要不要，变成带上限的 0/1 背包。设 `best[t]` 表示已选订单总时长**恰好**是 `t` 分钟时的最大价值，凑不出 `t` 记为空。看到一单 `[d, D, v]`，如果要它，它排在已选单的最后，在 `t` 分钟回来，`t` 不能超过 `D`：
+
+`best[t] = max(best[t], best[t − d] + v)`，其中 `d ≤ t ≤ D`。
+
+`t` 从 `D` 往下走，保证每单只用一次。答案是 `best` 里的最大值。
+
+<Figure caption="P、Q、R 的 `best` 表。Q 这一行的 `t = 2` 由上一行的 `t = 1` 加 5 得到 11；R 想放进 `t = 2` 只能从 0 加 10，得 10，比 11 小，不更新。答案是 11。">
+  <Grid
+    rows={[[0, '—', '—'], [0, 6, '—'], [0, 6, 11], [0, 6, 11]]}
+    rowHeaders={['开始', '看完 P', '看完 Q', '看完 R']}
+    colHeaders={['t = 0', 't = 1', 't = 2']}
+    tones={{ '1,1': 'soft', '2,2': 'strong', '3,2': 'soft' }}
+    arrows={[{ from: [1, 1], to: [2, 2] }]}
+    cellWidth={64}
+  />
+</Figure>
+
+<Solution slug="on-time-deliveries" file="followup" />
+
+T 是最大的截止时间，时间 O(n log n + n·T)，空间 O(T)。T 很大（比如以秒计、跨好几天）时这张表会很长，这时可以换成以“总价值”为下标、记录最短总时长的写法，复杂度变成和价值总和成正比。把所有价值都设成 1，这段代码的结果和原题的贪心一致，测试里也对拍过。
+
+## 参考
+
+- [力扣 630 · 课程表 III](https://leetcode.cn/problems/course-schedule-iii/)：同一个问题，课程换成了订单。
+- J. M. Moore. [An n Job, One Machine Sequencing Algorithm for Minimizing the Number of Late Jobs](https://doi.org/10.1287/mnsc.15.1.102). Management Science, 1968。“超时就去掉最长的一项”这一做法的出处，常称 Moore–Hodgson 算法。
+- E. L. Lawler, J. M. Moore. [A Functional Equation and its Application to Resource Allocation and Sequencing Problems](https://doi.org/10.1287/mnsc.16.1.77). Management Science, 1969。带权版本的动态规划。
+- 站内相关：<ProblemLink slug="weighted-interval-scheduling" />、<ProblemLink slug="kth-score-stream" />（同样靠堆随时取最值）、<ProblemLink slug="dual-budget-knapsack" />

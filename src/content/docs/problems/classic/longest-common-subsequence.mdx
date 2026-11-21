@@ -1,0 +1,204 @@
+---
+title: 最长公共子序列，并输出这条序列
+description: 两个序列的最长公共子序列：二维 DP 填表求长度，再从右下角回溯，输出一条具体的序列。
+sidebar:
+  label: 56. 最长公共子序列
+  order: 56
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Grid, Stepper, Step } from '~/components/viz';
+
+export const a = 'ABCBDAB';
+export const b = 'BDCABA';
+export const full = [
+  [0, 0, 0, 0, 0, 0, 0],
+  [0, 0, 0, 0, 1, 1, 1],
+  [0, 1, 1, 1, 1, 2, 2],
+  [0, 1, 1, 2, 2, 2, 2],
+  [0, 1, 1, 2, 2, 3, 3],
+  [0, 1, 2, 2, 2, 3, 3],
+  [0, 1, 2, 2, 3, 3, 4],
+  [0, 1, 2, 2, 3, 4, 4],
+];
+export const rowHeaders = ['0', ...Array.from(a, (ch, i) => `${i + 1} ${ch}`)];
+export const colHeaders = ['0', ...Array.from(b, (ch, j) => `${j + 1} ${ch}`)];
+// 只显示前 r 行；第 0 列始终是 0
+export const upTo = (r) => full.map((row, i) => (i <= r ? row : row.map((v, j) => (j === 0 ? 0 : null))));
+// 回溯路径：[i, j, 这一格做了什么]
+export const path = [
+  [7, 6, 'up'], [6, 6, 'take'], [5, 5, 'up'], [4, 5, 'take'],
+  [3, 4, 'left'], [3, 3, 'take'], [2, 2, 'left'], [2, 1, 'take'], [1, 0, 'end'],
+];
+// 已处理 done 格：收下字符的格加深，路过的格浅色，下一格（刚走到的位置）用强调色
+export const pathTones = (done) => {
+  const t = {};
+  path.slice(0, done).forEach(([i, j, act]) => { t[`${i},${j}`] = act === 'take' ? 'strong' : 'soft'; });
+  t[`${path[done][0]},${path[done][1]}`] = 'accent';
+  return t;
+};
+export const pathArrows = (done) =>
+  path.slice(0, done).map(([i, j], s) => ({ from: [i, j], to: [path[s + 1][0], path[s + 1][1]], tone: 'accent' }));
+export const frames = [
+  {
+    rows: upTo(0), tones: {}, arrows: [], picked: [],
+    caption: '第 0 行和第 0 列全是 0：有一边是空前缀，公共子序列就是空的。行对应 `a = ABCBDAB` 的前 i 个字符，列对应 `b = BDCABA` 的前 j 个字符。',
+  },
+  {
+    rows: upTo(1), tones: { '1,4': 'strong', '0,3': 'soft' }, arrows: [{ from: [0, 3], to: [1, 4] }], picked: [],
+    caption: '第 1 行，`a` 只取 `A`。`dp[1][4]`：`A` 对 `A`，相同，左上角 0 加 1，得 1。`dp[1][5]`：`A` 对 `B`，不同，抄左边的 1。`dp[1][6]`：`A` 对 `A`，左上角 0 加 1，也是 1。',
+  },
+  {
+    rows: upTo(2), tones: { '2,5': 'strong', '1,4': 'soft' }, arrows: [{ from: [1, 4], to: [2, 5] }], picked: [],
+    caption: '第 2 行，`a` 取到 `AB`。`dp[2][5]`：`B` 对 `B`，相同，左上角 1 加 1，得 2，对应 `AB` 和 `BDCAB` 的公共子序列 `AB`。',
+  },
+  {
+    rows: upTo(3), tones: { '3,4': 'strong', '2,4': 'soft', '3,3': 'soft' }, arrows: [{ from: [2, 4], to: [3, 4] }, { from: [3, 3], to: [3, 4] }], picked: [],
+    caption: '第 3 行。`dp[3][4]`：`C` 对 `A`，不同。扔掉 `C` 看上方 1，扔掉 `A` 看左方 2，取 2。',
+  },
+  {
+    rows: upTo(7), tones: { '7,6': 'strong' }, arrows: [], picked: [],
+    caption: '同样的规则填完剩下 4 行。右下角 `dp[7][6] = 4`，长度是 4。接下来从这一格往回走。',
+  },
+  {
+    rows: full, tones: pathTones(3), arrows: pathArrows(3), picked: ['A'],
+    caption: '`(7,6)`：`B` 对 `A`，不同；上方、左方都是 4，按约定往上。`(6,6)`：`A` 对 `A`，收下 `A`，斜走到 `(5,5)`。`(5,5)`：`D` 对 `B`，上方 3 大于左方 2，往上到 `(4,5)`。',
+  },
+  {
+    rows: full, tones: pathTones(6), arrows: pathArrows(6), picked: ['A', 'B', 'C'],
+    caption: '`(4,5)`：`B` 对 `B`，收下 `B`，斜走到 `(3,4)`。`(3,4)`：`C` 对 `A`，上方 1 小于左方 2，往左。`(3,3)`：`C` 对 `C`，收下 `C`，斜走到 `(2,2)`。',
+  },
+  {
+    rows: full, tones: pathTones(8), arrows: pathArrows(8), picked: ['A', 'B', 'C', 'B'],
+    caption: '`(2,2)`：`B` 对 `D`，上方 0 小于左方 1，往左。`(2,1)`：`B` 对 `B`，收下 `B`，走到 `(1,0)`，列号到 0，停。收下的顺序是 `A B C B`，反转得 `B C B A`。',
+  },
+];
+
+<ProblemMeta slug="longest-common-subsequence" />
+
+## 题目
+
+给两个序列 `a` 和 `b`，返回二元组：它们最长公共子序列的长度，以及其中一条（列表形式）。
+
+- `a`、`b` 可以是字符串，也可以是列表（例如两条工具调用轨迹）。
+- 子序列可以不连续，但要保持原来的先后顺序。同时是 `a` 和 `b` 的子序列，就是公共子序列。
+- 最长的可能不止一条，返回任意一条都算对：长度等于最长长度，且同时是 `a` 和 `b` 的子序列。
+- 任一序列为空时返回 `(0, [])`。
+- 字符串里的中文和 emoji 都按一个字符算。
+
+## 样例
+
+| a | b | 输出 |
+|---|---|---|
+| `"ABCBDAB"` | `"BDCABA"` | `(4, ['B', 'C', 'B', 'A'])`，`BCAB`、`BDAB` 也对 |
+| `"abc"` | `""` | `(0, [])` |
+
+列表也一样处理。两条工具调用轨迹 `["搜索", "打开", "点击", "搜索", "提交"]` 和 `["搜索", "点击", "打开", "提交"]`，输出 `(3, ['搜索', '打开', '提交'])`。
+
+第一个样例能抓两种错误。最长的连续公共片段只有 2 个字符（例如 `AB`），得到 2 说明写成了最长公共子串。回溯时收下的字符是倒序的，忘了反转会输出 `ABCB`，它不是 `b` 的子序列。
+
+## 思路
+
+用二维表 `dp[i][j]` 记两个前缀的最长公共子序列长度，逐行填完，右下角就是长度。再从右下角按填表规则倒着走，收下配上的字符，反转后就是一条答案。
+
+暴力做法是枚举 `a` 的每个子序列再检查。长度 m 时有 2ᵐ 个，长度 7 的 `a` 就有 128 个。
+
+`dp[i][j]` 是 `a` 的前 i 个字符和 `b` 的前 j 个字符的最长公共子序列长度。例如 `dp[2][5]` 是 `AB` 和 `BDCAB` 的答案，等于 2。最终要的是 `dp[7][6]`。
+
+算 `dp[i][j]` 时只看两个前缀的最后一个字符 `a[i-1]` 和 `b[j-1]`：
+
+- 相同：把这一对配上，两边各去掉最后一个字符，`dp[i][j] = dp[i-1][j-1] + 1`。这样配不会吃亏。假如某个最长方案没把这两个字符配成一对，把它的最后一对换成这一对即可：前面的配对在两边都更靠前，换完仍然合法，长度不变。
+- 不同：这两个字符不能互相配对，至少有一个用不上。扔掉 `a[i-1]` 看 `dp[i-1][j]`，扔掉 `b[j-1]` 看 `dp[i][j-1]`，取较大的。
+
+每格只依赖上方、左方、左上方三格。按行从上往下、每行从左往右填，用到的格子都已算好。第 0 行和第 0 列是空前缀，全是 0。
+
+表填完只知道长度。要找出是哪几个字符，从右下角倒着走：字符相同，这一格是左上角加 1 来的，收下字符，斜着走；字符不同，往值较大的邻居走，一样大时本页约定往上。某一边下标到 0 时停下，把收下的字符反转。
+
+<Stepper title="ABCBDAB 和 BDCABA：填表，再回溯">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div>
+          <p class="viz-row-label">dp 表（行：a 的前 i 个，列：b 的前 j 个）</p>
+          <Grid rows={f.rows} rowHeaders={rowHeaders} colHeaders={colHeaders} corner="i \ j" tones={f.tones} arrows={f.arrows} cellWidth={44} cellHeight={34} />
+        </div>
+        <div style="margin-top:0">
+          <p class="viz-row-label">已收下（倒序）</p>
+          <ArrayCells values={[0, 1, 2, 3].map((k) => f.picked[k] ?? null)} tones={[0, 1, 2, 3].map((k) => (k < f.picked.length ? 'strong' : 'ghost'))} index={false} cell={38} />
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+在 `(7,6)` 往左走也可以，最后得到 `BDAB`，同样是长度 4。平手时选哪边只影响输出哪一条，不影响长度。
+
+这张表和 <ProblemLink slug="trajectory-edit-distance" /> 的表形状一样，填表顺序也一样。编辑距离问最少改几步，取 min；公共子序列问最多留几个，取 max。
+
+## 代码
+
+<Solution slug="longest-common-subsequence" />
+
+Python 的字符串本身按字符下标访问，`a[i - 1]` 就是第 i 个字符。TypeScript 里先用 `[...a]` 把字符串展开成按 Unicode 码点切分的数组，否则一个 emoji 会占两个下标，长度和回溯结果都会出错；列表则直接使用。
+
+两边比较元素是否相同的方式不同：Python 的 `==` 比较值，TypeScript 的 `===` 比较原始值或对象引用。元素是字符串或数字时两者一致；如果元素是对象（比如带参数的工具调用），TypeScript 版需要先把它们转成字符串键再比。
+
+## 复杂度
+
+m 是 `a` 的长度，n 是 `b` 的长度。
+
+- **时间 O(mn)**：表有 (m + 1)(n + 1) 格，每格 O(1)。回溯每一步至少让 i 或 j 减 1，最多 m + n 步。
+- **空间 O(mn)**：回溯要用到整张表。如果只要长度，每一行只依赖上一行，留两行就够了，空间降到 O(min(m, n))，下面延伸里的代码就是这样做的。
+
+## 自测：回溯的方向和顺序
+
+<Aside type="caution" title="长度对了，序列不一定对">
+`a = "ABCBDAB"`，`b = "BDCABA"`，正确结果是长度 4，本页代码输出 `['B', 'C', 'B', 'A']`。
+
+- 得到长度 2：不相等时把 `dp[i][j]` 置成了 0，算的是最长公共子串。
+- 输出 `['A', 'B', 'C', 'B']`：收集完忘了反转。
+- 输出 `['A', 'A']`，比长度 4 短：字符不同时往较小的一边走了（比较写反成 `dp[i-1][j] <= dp[i][j-1]` 时往上）。走到小的一边，就离开了真正贡献长度的那条路。
+
+`"aaa"` 和 `"aa"` 的结果应该是 `(2, ['a', 'a'])`，用来检查重复字符不会被配两次。
+</Aside>
+
+## 延伸：用 LCS 算 ROUGE-L
+
+ROUGE-L 是评估生成文本的一个指标：把参考答案和模型输出都切成词，求两者的最长公共子序列，再据此算精确率、召回率和 F1。它只需要 LCS 的**长度**，不需要具体序列，所以原解法的回溯可以去掉，表也只用留两行。
+
+以参考答案 `the cat sat on the mat`（6 个词）、模型输出 `the cat on a mat`（5 个词）为例。按词求 LCS，得到 `the cat on mat`，长度 4。
+
+<Figure caption="两句话的最长公共子序列：`the cat on mat`。参考答案里的 `sat`、第二个 `the`，以及模型输出里的 `a` 没有配上。">
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">参考答案（6 个词）</p>
+      <ArrayCells values={['the', 'cat', 'sat', 'on', 'the', 'mat']} tones={['strong', 'strong', 'muted', 'strong', 'muted', 'strong']} cell={50} />
+    </div>
+    <div style="margin-top:0">
+      <p class="viz-row-label">模型输出（5 个词）</p>
+      <ArrayCells values={['the', 'cat', 'on', 'a', 'mat']} tones={['strong', 'strong', 'strong', 'muted', 'strong']} cell={50} />
+    </div>
+  </div>
+</Figure>
+
+- 精确率 P 问“模型说的词里有多少落在参考答案的顺序里”，分母是模型输出：4 / 5 = 0.8。
+- 召回率 R 问“参考答案的词里有多少被模型按顺序说到了”，分母是参考答案：4 / 6 ≈ 0.667。
+- F1 是两者的调和平均：2 × 0.8 × 0.667 / (0.8 + 0.667) = 8 / 11 ≈ 0.727。
+
+P 和 R 的分母最容易放反。把两个参数对调，P 变成 0.667、R 变成 0.8，F1 不变，所以只看 F1 发现不了这个错误。
+
+和只数共同词的 ROUGE-1 相比，ROUGE-L 在乎顺序。把参考答案倒过来写成 `mat the on sat cat the`，6 个词一个不少，ROUGE-1 的 P、R 都是 1；而 LCS 只有 3（例如 `the on the`），ROUGE-L 的 P、R、F1 都是 0.5。
+
+<Solution slug="longest-common-subsequence" file="followup" />
+
+这里按空白切词、区分大小写。任一边没有词或者 LCS 为 0 时直接返回三个 0，避免除以 0。常用的 `rouge-score` 包还会先转小写、去掉标点再切词，同一对句子在那边的分数可能和这里不同。原论文的 F 值带一个权重 β，β = 1 时就是这里的调和平均，`rouge-score` 包用的也是 β = 1。
+
+## 参考
+
+- [力扣 1143 · 最长公共子序列](https://leetcode.cn/problems/longest-common-subsequence/)
+- Chin-Yew Lin. [ROUGE: A Package for Automatic Evaluation of Summaries](https://aclanthology.org/W04-1013/). ACL Workshop, 2004（ROUGE-L 的定义）
+- [google-research/rouge 的 rouge_scorer.py](https://github.com/google-research/google-research/blob/master/rouge/rouge_scorer.py)（`rouge-score` 包的实现）
+- 同样形状的 DP 表：<ProblemLink slug="trajectory-edit-distance" />；一个序列内部的版本：<ProblemLink slug="longest-increasing-subsequence" />

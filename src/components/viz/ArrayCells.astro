@@ -1,0 +1,130 @@
+---
+// 一行格子：数组、字符串、队列、栈都用它画。支持指针（L、R）、区间括号和逐格状态。
+import { textWidth, toneClass, type Tone } from './shared';
+
+interface Pointer {
+  at: number;
+  label: string;
+  side?: 'top' | 'bottom';
+  tone?: Tone;
+}
+interface Range {
+  from: number;
+  to: number;
+  label?: string;
+  side?: 'top' | 'bottom';
+  tone?: Tone;
+}
+interface Props {
+  values: (string | number | null)[];
+  tones?: (Tone | null | undefined)[] | Record<number, Tone>;
+  pointers?: Pointer[];
+  ranges?: Range[];
+  index?: boolean;
+  indexStart?: number;
+  label?: string;
+  cell?: number;
+  height?: number;
+  ariaLabel?: string;
+}
+
+const {
+  values,
+  tones = [],
+  pointers = [],
+  ranges = [],
+  index = true,
+  indexStart = 0,
+  label,
+  height: ch = 40,
+  ariaLabel,
+} = Astro.props;
+
+const maxText = Math.max(0, ...values.map((v) => textWidth(v ?? '', 15)));
+const cw = Astro.props.cell ?? Math.max(44, Math.ceil(maxText + 20));
+const toneAt = (i: number): Tone | undefined =>
+  Array.isArray(tones) ? (tones[i] ?? undefined) : (tones as Record<number, Tone>)[i];
+
+const left = label ? Math.ceil(textWidth(label, 14)) + 18 : 4;
+const topPtr = pointers.some((p) => (p.side ?? 'top') === 'top') ? 30 : 0;
+const topRanges = ranges.filter((r) => (r.side ?? 'top') === 'top');
+const bottomRanges = ranges.filter((r) => r.side === 'bottom');
+const topH = topPtr + (topRanges.length ? 26 : 0) + 4;
+const idxH = index ? 20 : 0;
+const botPtr = pointers.some((p) => p.side === 'bottom') ? 30 : 0;
+const botH = idxH + botPtr + (bottomRanges.length ? 26 : 0) + 4;
+const width = left + Math.max(values.length, 1) * cw + 4;
+const height = topH + ch + botH;
+const cellX = (i: number) => left + i * cw;
+const rangeTopY = topPtr + 14;
+const rangeBotY = topH + ch + idxH + botPtr + 10;
+---
+
+<svg
+  class="viz"
+  viewBox={`0 0 ${width} ${height}`}
+  width={width}
+  height={height}
+  role="img"
+  aria-label={ariaLabel ?? values.join(' ')}
+>
+  {label && (
+    <text class="viz-label" x={left - 12} y={topH + ch / 2} text-anchor="end" dominant-baseline="central">
+      {label}
+    </text>
+  )}
+  {values.map((v, i) => (
+    <g class={`viz-cell ${toneClass(toneAt(i))}`}>
+      <rect x={cellX(i) + 1.5} y={topH} width={cw - 3} height={ch} rx="5" />
+      <text x={cellX(i) + cw / 2} y={topH + ch / 2} text-anchor="middle" dominant-baseline="central">
+        {v ?? ''}
+      </text>
+    </g>
+  ))}
+  {index && values.map((_, i) => (
+    <text class="viz-index" x={cellX(i) + cw / 2} y={topH + ch + 14} text-anchor="middle">
+      {i + indexStart}
+    </text>
+  ))}
+  {topRanges.map((r) => (
+    <g class={`viz-range ${toneClass(r.tone ?? 'accent')}`}>
+      <path
+        d={`M ${cellX(r.from) + 4} ${rangeTopY + 8} V ${rangeTopY} H ${cellX(r.to + 1) - 4} V ${rangeTopY + 8}`}
+      />
+      {r.label && (
+        <text x={(cellX(r.from) + cellX(r.to + 1)) / 2} y={rangeTopY - 5} text-anchor="middle">
+          {r.label}
+        </text>
+      )}
+    </g>
+  ))}
+  {bottomRanges.map((r) => (
+    <g class={`viz-range ${toneClass(r.tone ?? 'accent')}`}>
+      <path
+        d={`M ${cellX(r.from) + 4} ${rangeBotY - 8} V ${rangeBotY} H ${cellX(r.to + 1) - 4} V ${rangeBotY - 8}`}
+      />
+      {r.label && (
+        <text x={(cellX(r.from) + cellX(r.to + 1)) / 2} y={rangeBotY + 15} text-anchor="middle">
+          {r.label}
+        </text>
+      )}
+    </g>
+  ))}
+  {pointers.map((p) => {
+    const x = cellX(p.at) + cw / 2;
+    const top = (p.side ?? 'top') === 'top';
+    const y1 = top ? 16 : topH + ch + idxH + 14;
+    return (
+      <g class={`viz-pointer ${toneClass(p.tone ?? 'accent')}`}>
+        <text x={x} y={top ? 11 : y1 + 12} text-anchor="middle">{p.label}</text>
+        {top ? (
+          <path d={`M ${x} 15 V ${topH - 5} M ${x - 4} ${topH - 10} L ${x} ${topH - 4} L ${x + 4} ${topH - 10}`} />
+        ) : (
+          <path
+            d={`M ${x} ${y1} V ${topH + ch + idxH + 2} M ${x - 4} ${topH + ch + idxH + 8} L ${x} ${topH + ch + idxH + 2} L ${x + 4} ${topH + ch + idxH + 8}`}
+          />
+        )}
+      </g>
+    );
+  })}
+</svg>

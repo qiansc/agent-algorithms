@@ -1,0 +1,160 @@
+---
+title: 调用次数和 token 都有限，哪些分支值得跑
+description: 两种预算同时受限的 0/1 背包：二维 DP 表，两个预算都从大往小扫，保证每个分支只用一次。
+sidebar:
+  label: 21. 双预算背包
+  order: 21
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Grid, Stepper, Step } from '~/components/viz';
+
+export const rowNames = ['c = 0', 'c = 1', 'c = 2'];
+export const cols6 = ['t = 0', 't = 1', 't = 2', 't = 3', 't = 4', 't = 5'];
+export const cols5 = cols6.slice(0, 5);
+export const z6 = [0, 0, 0, 0, 0, 0];
+export const frames = [
+  {
+    title: '初始',
+    rows: [z6, z6, z6],
+    tones: {},
+    arrows: [],
+    caption: '一个分支都没看，每格都是 0。',
+  },
+  {
+    title: '看完 A (2, 4, 9)',
+    rows: [z6, z6, [0, 0, 0, 0, 9, 9]],
+    tones: { '2,4': 'strong', '2,5': 'strong', '0,0': 'soft', '0,1': 'soft' },
+    arrows: [{ from: [0, 0], to: [2, 4] }, { from: [0, 1], to: [2, 5] }],
+    caption: 'A 要 2 次调用、4 单位 token，只有 c ≥ 2、t ≥ 4 的格子跑得起。跑 A 后剩 (c − 2, t − 4)，取那格的分加 9。`best[2][4]` 和 `best[2][5]` 变成 9。',
+  },
+  {
+    title: '看完 B (1, 3, 6)',
+    rows: [z6, [0, 0, 0, 6, 6, 6], [0, 0, 0, 6, 9, 9]],
+    tones: { '1,3': 'strong', '1,4': 'strong', '1,5': 'strong', '2,3': 'strong', '2,4': 'soft', '1,1': 'soft' },
+    arrows: [{ from: [1, 1], to: [2, 4], tone: 'muted' }],
+    caption: 'B 让 c ≥ 1、t ≥ 3 的格子至少有 6 分。`best[2][4]` 试过跑 B：剩 (1, 1)，那格是 0，0 + 6 = 6 不如 9，不变。',
+  },
+  {
+    title: '看分支 C (1, 2, 5)：第一格 (2, 5)',
+    rows: [z6, [0, 0, 0, 6, 6, 6], [0, 0, 0, 6, 9, 11]],
+    tones: { '2,5': 'strong', '1,3': 'accent' },
+    arrows: [{ from: [1, 3], to: [2, 5] }],
+    caption: '从右下角倒着扫，第一格是 (2, 5)。跑 C 剩 (1, 3)，那格是 6（只跑 B）。6 + 5 = 11 > 9，改成 11。c = 1 这行本轮还没改过，读到的 6 不含 C。',
+  },
+  {
+    title: '看完 C',
+    rows: [z6, [0, 0, 5, 6, 6, 6], [0, 0, 5, 6, 9, 11]],
+    tones: { '1,2': 'strong', '2,2': 'strong', '2,5': 'strong', '2,4': 'accent' },
+    arrows: [],
+    caption: '这一轮还把 (1, 2) 和 (2, 2) 改成 5。预算 (2, 5) 的答案是 11，跑 B 和 C；(2, 4) 是 9，只够跑 A。',
+  },
+  {
+    title: '反例：只有分支 (1, 2, 5)，预算从小往大扫',
+    wrong: true,
+    rows: [[0, 0, 0, 0, 0], [0, 0, 5, 5, 5], [0, 0, 5, 5, 10]],
+    tones: { '1,2': 'warn', '2,4': 'warn' },
+    arrows: [{ from: [1, 2], to: [2, 4], tone: 'warn' }],
+    caption: '只有一个分支 (1, 2, 5)，预算 (2, 4)。正着扫时 (1, 2) 先变成 5；轮到 (2, 4) 读到的是本轮刚写的 5，再加 5 得 10。同一个分支跑了两遍。',
+  },
+  {
+    title: '同一个例子，从大往小扫',
+    rows: [[0, 0, 0, 0, 0], [0, 0, 5, 5, 5], [0, 0, 5, 5, 5]],
+    tones: { '1,2': 'soft', '2,4': 'strong' },
+    arrows: [{ from: [1, 2], to: [2, 4] }],
+    caption: '倒着扫时 (2, 4) 先算，(1, 2) 还是上一轮的 0，得 5。(1, 2) 改成 5 时，更大的格子都已算完，没人再读它。答案是 5。',
+  },
+];
+
+<ProblemMeta slug="dual-budget-knapsack" />
+
+## 题目
+
+从 n 个相互独立的验证分支里挑一些来跑，调用次数和 token 都不能超预算，求最高总分。
+
+- 输入：分支 i 是 `[calls, tokens, value]`，跑一次消耗 calls 次工具调用、tokens 单位 token，得 value 分。每个分支最多跑一次，得分相加。
+- 预算：最多 `call_cap` 次调用、`token_cap` 单位 token。一个都不跑得 0。
+- token 已经换算成整数单位，例如一单位表示 100 个 token。
+- calls、tokens、value 都是正整数；两个上限是非负整数。不满足时抛出异常。
+- 规模：n ≤ 80，`call_cap` ≤ 30，`token_cap` ≤ 200。
+
+## 样例
+
+`branches = [[2,4,9], [1,3,6], [1,2,5]]`，依次叫作 A、B、C。
+
+| call_cap | token_cap | 输出 | 说明 |
+|---|---|---|---|
+| 2 | 5 | `11` | 跑 B 和 C：2 次调用、5 单位 token，6 + 5 |
+| 2 | 4 | `9` | B + C 要 5 单位 token，超了；只能跑 A |
+
+A 单个分数最高，但第一行跑了 A 就没余量了，B 和 C 合起来有 11。第二行专门卡“预算正着扫”：那样 C 会跑两遍，答成 10。
+
+## 思路
+
+这是有两种容量的 0/1 背包：用一张二维表，每看一个分支就把两个预算都从大往小扫一遍。0/1 指每件物品只能拿或不拿，不能拿两次。
+
+`best[c][t]` 表示在已看过的分支里，最多用 c 次调用、t 单位 token 的最高分。一开始全是 0。每看一个分支（耗费 calls、tokens，得 value 分），就把每格更新一次：
+
+- 不跑它：分不变。
+- 跑它：留给之前分支的预算是 (c − calls, t − tokens)，取那格的分加 value。
+
+两者取大。看完所有分支，`best[call_cap][token_cap]` 就是答案。
+
+<Stepper title="样例：逐个分支更新预算表">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <p class="viz-row-label">{f.title}</p>
+      <Grid rows={f.rows} rowHeaders={rowNames} colHeaders={f.rows[0].length === 6 ? cols6 : cols5} tones={f.tones} arrows={f.arrows} cellWidth={50} />
+    </Step>
+  ))}
+</Stepper>
+
+为什么要从大往小扫？转移读的是更小预算的那格，它必须还没算上当前分支。只用一张表时，正着扫会先改小格子，大格子再读它，等于把这个分支又跑了一次。上面的反例里，(1, 2) 先变成 5，(2, 4) 读到它再加 5，得 10。
+
+倒着扫时大格子先算，读到的小格子还是上一轮的值；小格子后改，之后没有格子再读它。
+
+两维都倒着扫最稳妥。严格说，每个分支至少 1 次调用，读的格子一定在更小的 c 那一行，只要 c 倒着扫，t 怎么扫都行。但如果允许调用次数为 0，就只能靠 t 倒序保护。两维都倒序，不用分情况。
+
+## 代码
+
+<Solution slug="dual-budget-knapsack" />
+
+建二维表时，两种语言有同一个坑。Python 的 `[[0] * (T + 1)] * (C + 1)` 和 TypeScript 的 `new Array(C + 1).fill(new Array(T + 1).fill(0))` 都只建了**一行**，其余各行是同一个对象的引用，改一格会改动整列。所以 Python 用列表推导式，TypeScript 用 `Array.from({ length }, () => ...)`，每次回调都新建一行。
+
+## 复杂度
+
+n 是分支个数，C 是 `call_cap`，T 是 `token_cap`。
+
+- **时间 O(n·C·T)**：每个分支把整张 (C + 1) × (T + 1) 的表扫一遍。按题目上限约是 80 × 31 × 201，五十万次左右。
+- **空间 O(C·T)**：只有一张表。
+
+这个复杂度依赖预算的数值，而不是输入的长度。T 如果是几百万，输入里只是一个几字节的整数，表却要几百万格乘以 C，得先算一下内存放不放得下。
+
+## 自测：样例的第二行
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`call_cap = 2`，`token_cap = 4` 的正确答案是 9。如果你得到 10，说明 C 被跑了两遍：要么预算是从小往大扫的，要么二维表的各行其实是同一个列表（见“代码”一节）。
+
+只有一个分支 `[[1,2,5]]`、预算 (2, 4) 时，正确答案是 5。得到 10 也是同一个原因。
+</Aside>
+
+## 延伸：两项预算必须恰好用完呢？
+
+比如这批验证要正好占满分配到的调用次数和 token，不允许剩。
+
+转移不变，改的是初值和含义：`best[c][t]` 改成**恰好**用掉 c 次调用、t 单位 token 的最高分。只有 `best[0][0]` 是 0，其余格子初值是负无穷，表示凑不出来。负无穷加任何分数仍是负无穷，不会被误用。最后 `best[call_cap][token_cap]` 还是负无穷，就返回 −1。
+
+为什么不能用全 0 初值？全 0 等于说“什么都不跑也能恰好用掉 (c, t)”。拿样例和预算 (1, 4) 来看：1 次调用的分支只有 B (1, 3) 和 C (1, 2)，凑不出恰好 4 单位 token，正确答案是 −1。全 0 初值却会从 `best[0][1] = 0` 转移出 0 + 6 = 6，把剩下的 1 单位 token 也算作花掉了。
+
+样例的预算 (2, 5) 恰好由 B + C 用完，答案仍是 11；(2, 4) 恰好由 A 用完，答案仍是 9。
+
+<Solution slug="dual-budget-knapsack" file="followup" />
+
+## 参考
+
+- [力扣 474 · 一和零](https://leetcode.cn/problems/ones-and-zeroes/)：同样是两种容量的 0/1 背包，每件物品的价值固定为 1，本题换成任意正分数。
+- [力扣 416 · 分割等和子集](https://leetcode.cn/problems/partition-equal-subset-sum/)：一维 0/1 背包，同样要倒着扫。
+- 同样要靠“只读上一轮的值”避免一轮里走两步的题：<ProblemLink slug="capped-cost-path" />；把背包用在满减凑单上：<ProblemLink slug="cheapest-checkout" />

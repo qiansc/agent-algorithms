@@ -1,0 +1,266 @@
+---
+title: 下单与支付：确认、幂等和重试
+description: 下单和支付前必须让用户确认；用幂等 key 和“先查再重试”保证一次确认最多出一单、扣一次钱。
+sidebar:
+  label: 设计 2. 下单与支付：确认、幂等和重试
+  order: 2
+---
+
+import ProblemLink from '~/components/ProblemLink.astro';
+import DesignLink from '~/components/DesignLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Graph, Lanes, Stepper, Step } from '~/components/viz';
+
+export const smNodes = [
+  { id: 'draft', label: '草稿', sub: 'draft', x: 50, y: 70 },
+  { id: 'awaiting_confirm', label: '待确认', sub: 'awaiting', x: 175, y: 70 },
+  { id: 'confirmed', label: '已确认', sub: 'confirmed', x: 300, y: 70 },
+  { id: 'submitting', label: '提交中', sub: 'submitting', x: 425, y: 70 },
+  { id: 'rejected', label: '被拒绝', sub: 'rejected', x: 550, y: 70 },
+  { id: 'failed', label: '失败', sub: 'failed', x: 300, y: 200 },
+  { id: 'unknown', label: '结果未知', sub: 'unknown', x: 425, y: 200 },
+  { id: 'placed', label: '已下单', sub: 'placed', x: 550, y: 200 },
+];
+export const smEdges = [
+  ['draft', 'awaiting_confirm', '预览'],
+  ['awaiting_confirm', 'draft', '修改', 44],
+  ['awaiting_confirm', 'confirmed', '确认'],
+  ['confirmed', 'submitting', '提交'],
+  ['submitting', 'confirmed', '忙', 44],
+  ['submitting', 'rejected', '拒绝'],
+  ['confirmed', 'failed', '用完'],
+  ['submitting', 'unknown', '超时'],
+  ['submitting', 'placed', '成功'],
+  ['unknown', 'placed', '查到'],
+  ['unknown', 'confirmed', '查无'],
+];
+export const sm = (cur, seen = [], hot = null, warn = false) => ({
+  nodes: smNodes.map((n) => ({
+    ...n, shape: 'rect', w: 84,
+    tone: n.id === cur ? (warn ? 'warn' : 'strong') : seen.includes(n.id) ? 'done' : 'default',
+  })),
+  edges: smEdges.map(([from, to, label, bend]) => ({
+    from, to, label, bend,
+    dashed: from === 'unknown' && to === 'confirmed',
+    tone: hot && hot[0] === from && hot[1] === to ? 'accent' : 'default',
+  })),
+});
+export const frames = [
+  { g: sm('awaiting_confirm', ['draft'], ['draft', 'awaiting_confirm']),
+    caption: '购物车凑齐，生成确认卡，状态从 `draft` 进入 `awaiting_confirm`。模型手里没有能下单的工具。' },
+  { g: sm('confirmed', ['draft', 'awaiting_confirm'], ['awaiting_confirm', 'confirmed']),
+    caption: '用户点“确认并支付 ¥57.00”。客户端生成幂等 key `ck_9e2b`，先和卡片一起存下来，再发请求。' },
+  { g: sm('submitting', ['draft', 'awaiting_confirm', 'confirmed'], ['confirmed', 'submitting']),
+    caption: '第 1 次 `place`，带着 `ck_9e2b`。服务端在 0.6 s 建好订单 `o1`，但响应在地铁里丢了。' },
+  { g: sm('unknown', ['draft', 'awaiting_confirm', 'confirmed', 'submitting'], ['submitting', 'unknown']),
+    caption: '3 s 没等到响应，记为 `place:timeout`，进入 `unknown`。这时不能告诉用户“下单失败”，订单可能已经建好。' },
+  { g: sm('placed', ['draft', 'awaiting_confirm', 'confirmed', 'submitting', 'unknown'], ['unknown', 'placed']),
+    caption: '重试前先用 `ck_9e2b` 查，记为 `lookup:found`，拿到 `o1`，直接进入 `placed`。整个过程只建了 1 单。' },
+  { g: sm('placed', ['draft', 'awaiting_confirm', 'confirmed', 'submitting'], ['submitting', 'placed'], true),
+    caption: '错误做法对照：超时后换新 key，不查就重发。第 2 次 `place` 返回 `o2`，而 `o1` 也在，用户收到两单、付两次 ¥57。' },
+];
+
+用户看完确认卡，在地铁里点了“确认并支付”。请求发出 3 秒，没有回应。
+
+这时有三种可能：请求没到服务端；订单已经建好，只是响应丢了；请求还堵在路上，过一会儿才到。助手怎么处理，决定了用户最后是没下成单、下了一单，还是下了两单、付了两次钱。
+
+## 题目
+
+设计点餐助手从“用户确认”到“支付完成”这一段。
+
+- 下单 `place_order` 和支付 `pay` 是不可逆操作，必须在用户明确确认之后才执行。
+- 一次确认最多产生一个订单、一笔扣款，网络再差也不能重复。
+- 结果不确定时，要如实告诉用户，并在后台查清楚。
+
+方案要回答：怎样才算“用户确认过”；确认卡上必须有什么；幂等 key 由谁生成、保留多久；超时后怎样重试；订单有哪些状态，哪些转移合法。
+
+## 先想清楚的几件事
+
+### 哪些操作需要确认？
+
+会对外做出承诺或花钱的操作：下单（商家收到就开始做）、支付（钱划走）、取消已接单的订单（可能扣费）。
+
+加购、删商品、换券、改地址只改本地草稿，随时能改回来，不需要确认。确认太多，用户会养成不看就点的习惯，真正要紧的那次也不看了。
+
+### “用户确认过”怎么证明？
+
+靠代码，不靠模型。下单工具不给模型：模型只能调 `preview_order` 生成确认卡。卡上的按钮直接调后端，后端核对卡片 id 和当前购物车，一致才下单。
+
+反过来，如果用户说“行吧”“可以”，模型理解成确认，自己调 `place_order`，这条路上没有任何代码检查。用户打字说“确认”也行，但要由代码把它绑定到最近一张、内容没变的卡片上，不交给模型去调工具。
+
+### 确认之后东西变了怎么办？
+
+重新确认。确认卡生成时，记下购物车、地址、券和应付金额的摘要（下文的 `card_hash`）。提交时后端重算一遍，摘要不同就拒绝，并返回新卡。
+
+哪怕只是配送费从 ¥4 变成 ¥5，也要重新确认。用户点的是“¥57.00”，扣 ¥58 就是没经过他同意。
+
+### 超时到底意味着什么？
+
+意味着“结果未知”，不能记成“失败”。三种情况客户端分不出来：请求没到服务端；到了、执行了，响应丢了；还在路上，稍后才到。
+
+只有服务端明确说“没执行”（例如 503 忙），才能放心直接重试。
+
+### 一张卡对应几个幂等 key？
+
+一张确认卡对应一个下单 key。同一张卡重试多少次都用它，服务端看到重复的 key，就返回第一次的结果。支付是另一个不可逆操作，用另一个 key，可以由订单号派生，例如 `pay_o1`。
+
+## 参考方案
+
+方案由三样东西组成：一张订单状态机；跟着确认卡走的幂等 key；超时后先查、再决定要不要重发。
+
+订单的状态和合法转移如下。图里没有的转移一律拒绝，例如从 `draft` 直接 `submit`。
+
+<Figure caption="下单状态机。虚线表示查无结果，回到“已确认”再提交一次。">
+  <Graph {...sm(null)} />
+</Figure>
+
+重点是 `unknown`。它只有两条出路：按 key 查到订单，进入 `placed`；查不到，回到 `confirmed`，再用同一个 key 提交。没有一条边从 `unknown` 直接到 `submitting`，所以“不查就重发”在状态机里走不通。
+
+下面用 `["lost", "ok"]` 这组故障走一遍：第一次请求建好了订单，但响应丢了；第二次请求一切正常。最后一帧是同样故障下的错误做法。
+
+<Stepper title="响应丢失时：先查，再决定要不要重发">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <Graph {...f.g} />
+    </Step>
+  ))}
+</Stepper>
+
+时间线上看是这样：
+
+<Figure caption="订单 0.6 s 就建好了，助手到 3 s 超时才发现出了问题，再花 0.5 s 查清。支付用订单号派生的另一个 key。">
+  <Lanes
+    lanes={[
+      { label: '助手', items: [
+        { start: 0, end: 3, label: '提交 ck_9e2b，等响应', tone: 'accent' },
+        { start: 3, end: 3.5, label: '查询', tone: 'strong' },
+        { start: 3.6, end: 4.4, label: '支付', tone: 'accent' },
+      ] },
+      { label: '下单服务', items: [
+        { start: 0.2, end: 0.6, label: '建单 o1', tone: 'done' },
+        { start: 3.1, end: 3.4, label: '命中', tone: 'done' },
+      ] },
+      { label: '支付服务', items: [
+        { start: 3.7, end: 4.3, label: '扣款', tone: 'done' },
+      ] },
+    ]}
+    from={0}
+    to={4.5}
+    scale={115}
+    ticks={[0, 1, 2, 3, 4]}
+    unit=" s"
+    marks={[{ at: 0.6, label: '响应丢失' }, { at: 3, label: '超时' }]}
+  />
+</Figure>
+
+代码分三部分：
+
+- 状态转移表和 `advance`。
+- 假的下单服务 `OrderApi`。它用 `faults` 列表模拟每次请求遇到的情况：`ok`、`busy`、`timeout`、`late`、`lost`、`reject`。
+- 客户端的 `submit_order`。`submit_naively` 是错误做法，留作对照。
+
+`run_checkout` 把它们串起来，返回最终状态、订单号、服务端一共建了几单，以及每一步的记录。
+
+<Solution slug="design-confirm-before-payment" />
+
+几组测试结果，都来自 `cases.json`：
+
+| 故障序列 | 做法 | 记录 | 结果 | 建了几单 |
+|---|---|---|---|---|
+| `lost, ok` | 先查再重试 | `place:timeout`、`lookup:found` | `placed`，`o1` | 1 |
+| `lost, ok` | 换 key 直接重发 | `place:timeout`、`place:ok` | `placed`，`o2` | 2 |
+| `late, ok` | 先查再重试 | `place:timeout`、`lookup:none`、`place:ok` | `placed`，`o1` | 1 |
+| `late, ok` | 换 key 直接重发 | `place:timeout`、`place:ok` | `placed`，`o2` | 2 |
+| `timeout` × 3 | 先查再重试 | 3 次超时，每次之后都查无 | `unknown` | 0 |
+| `busy` × 3 | 先查再重试 | 3 次 `place:busy`，不查 | `failed` | 0 |
+
+`late, ok` 这一行说明，光“先查”还不够。第一次请求堵在路上，查询时它还没到，所以查无。第二次提交时，它恰好落地，建了 `o1`。第二次用的是同一个 key，服务端认出这是同一笔，直接返回 `o1`；换了新 key，就会再建 `o2`。查询负责“少发一次”，同一个 key 负责“发重了也没事”，两样都要有。
+
+`timeout` × 3 的结果是 `unknown`，不是 `failed`：最后一次查无，不代表请求不会稍后落地。这时把订单交给后台对账任务，每隔几秒按 key 查一次。查到就推送给用户，超过 2 分钟仍查无，再宣告失败。
+
+TypeScript 版有两处和 Python 不同。一是比较请求内容用 `JSON.stringify`，它对键的顺序敏感，`{a, b}` 和 `{b, a}` 会被当成不同的请求；真实服务里要先把键排好序再算摘要。Python 的 `dict` 比较不看顺序。二是 TS 的 `catch` 拿到的是任意值，要用 `instanceof` 逐个判断，认不出的异常重新抛出。
+
+## 关键细节
+
+### 确认卡上必须有什么
+
+确认卡是用户做决定的唯一依据，上面没写的事，用户等于没同意。下面是这单的确认卡数据：
+
+```json
+{
+  "card_id": "card_51d0",
+  "card_hash": "sha256:8c1e…",
+  "store": { "name": "绿碗轻食（科技园店）", "eta_minutes": 24 },
+  "items": [
+    { "name": "鸡胸肉藜麦沙拉", "spec": "标准",
+      "qty": 1, "price": 32.00 },
+    { "name": "南瓜浓汤", "spec": "标准",
+      "qty": 1, "price": 12.00 },
+    { "name": "冰美式", "spec": "中杯 · 少冰",
+      "qty": 1, "price": 15.00 }
+  ],
+  "fees": { "delivery": 4.00, "packing": 2.00 },
+  "discounts": [{ "name": "满 40 减 8", "amount": -8.00 }],
+  "total": 57.00,
+  "address": "科技园南区 B 座 12 楼前台 · 李** 138****2071",
+  "payment": "余额支付",
+  "changes_from_base_order": ["新增 冰美式 中杯"],
+  "button": "确认并支付 ¥57.00"
+}
+```
+
+32 + 12 + 15 = 59，加配送费 4、打包费 2，减券 8，应付 57。几条取舍：
+
+- 按钮上写金额。“确认并支付 ¥57.00”比“确认”多一层保险，用户的拇指和眼睛在同一个地方。
+- 和原单不一样的地方单独列出来（`changes_from_base_order`）。复购场景用户默认“和上次一样”，变化的地方最容易被忽略。
+- 用户没指定、由助手默认的值（中杯）要显示在卡上，这是上一页“用默认值而不追问”的前提，见<DesignLink slug="intent-to-tool-plan" />。
+- 地址和手机号部分打码，但楼层和收货人要能认出来，送错地址比多付钱更难补救。
+
+### 幂等 key 的生成和保存
+
+key 在用户点确认的那一刻由客户端生成，**先写进本地存储，再发请求**。如果顺序反过来，请求发出后 App 被杀掉，重启时找不到 key，只能生成新的，前面的保护就失效了。
+
+服务端收到 key 后保存“key → 请求摘要 + 响应”，至少保留到对账任务结束（例如 24 小时）。同一个 key 带着不同的请求内容来，返回错误，不执行。这能拦住“key 被错误复用”这类 bug，测试里的 `test_same_key_other_payload_rejected` 测的就是它。
+
+### 超时和重试的预算
+
+单次请求超时 3 s，最多提交 3 次。两次之间分别等 0.5 s、1 s，再加一点随机抖动，总共控制在 10 s 左右。超过这个时间，用户已经盯着转圈很久了，不如告诉他实情：
+
+> 订单可能已经提交，正在确认结果，不会重复扣款。确认后马上通知你。
+
+这句话的每一部分都是真的。“下单失败，请重试”是错的：它会让用户再点一次，生成新卡、新 key，正好绕过所有保护。
+
+### 支付和下单分开
+
+下单成功（`placed`）之后才发起支付，支付用自己的 key `pay_o1`，同样走“超时 → 未知 → 先查支付状态 → 再决定”。支付渠道通常按商户订单号查询，订单号天然唯一，可以直接当幂等依据。下单成功、支付失败时，订单留在“待支付”，确认卡换成“继续支付 ¥57.00”，不需要重新确认商品。
+
+## 常见的坑
+
+<Aside type="caution" title="重复下单和误扣款，几乎都出在这几处">
+**每次重试生成新 key。** key 写在重试循环里面，等于没有 key。测试里 `lost, ok` 换 key 重发就建了 `o2`。
+
+**把超时当失败。** 对用户说“失败了，再试一次”，用户再点，第二张卡、第二个 key、第二单。超时只能是“未知”。
+
+**对明确的拒绝也重试。** 门店已闭店、金额不一致这类 4xx 错误，重试多少次都一样，只会拖长等待。测试里 `reject` 只发一次就停。
+
+**让模型持有下单工具。** 只要 `place_order` 在模型的工具列表里，就存在“用户说了句模棱两可的话，模型就下单了”的可能。工具列表里只放 `preview_order`。
+
+**key 只存在内存里。** App 崩溃、页面刷新、服务实例重启后 key 丢失，重试就成了新请求。
+</Aside>
+
+## 延伸：结果还没查清，用户说“那再下一单”怎么办？
+
+不能照做。上一单处于 `unknown`，可能已经建好；再下一单，用户就可能收到两份同样的饭。
+
+处理办法是在生成新确认卡之前，先检查这个会话里有没有 `unknown` 状态的订单。有的话，先同步查一次：查到了，告诉用户“上一单其实已经下成功了，订单号 o1，预计 24 分钟送达”；仍然查无，告诉用户“上一单还在确认，30 秒内有结果，到时如果没成功我再帮你下”，并把新的下单请求挂在对账结果后面，而不是并行发出。
+
+用户坚持要立刻再下一单（例如他确实想要两份），可以下，但新卡上要明确写出“你有一单正在确认中，这是第二单”，让用户知道自己在做什么。这时候新卡是新 key，两单都成功是用户自己选的结果。
+
+## 参考
+
+- Stripe 文档：[Idempotent requests](https://docs.stripe.com/api/idempotent_requests)。同一个 key 重试时返回第一次的结果，请求内容不一致时报错。
+- Stripe 工程博客：[Designing robust and predictable APIs with idempotency](https://stripe.com/blog/idempotency)。超时的三种可能、重试和指数退避。
+- IETF 草案：[The Idempotency-Key HTTP Header Field](https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/)。
+- LangGraph 文档：[Interrupts](https://docs.langchain.com/oss/python/langgraph/interrupts)。在图执行中途暂停、等人确认后再继续。
+- Yao et al. [τ-bench: A Benchmark for Tool-Agent-User Interaction in Real-World Domains](https://arxiv.org/abs/2406.12045). arXiv:2406.12045。其零售场景的规则要求：修改数据库的操作前列出细节，并取得用户明确的“yes”。

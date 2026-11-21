@@ -1,0 +1,15 @@
+---
+import { inline } from './shared';
+
+interface Props {
+  caption?: string;
+  wide?: boolean;
+}
+
+const { caption, wide = false } = Astro.props;
+---
+
+<figure class:list={['viz-figure', { 'viz-wide': wide }]}>
+  <div class="viz-scroll"><slot /></div>
+  {caption && <figcaption set:html={inline(caption)} />}
+</figure>

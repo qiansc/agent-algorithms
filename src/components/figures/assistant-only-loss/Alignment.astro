@@ -1,0 +1,82 @@
+---
+// 两行格子（上：标签，下：logits），中间留出空隙画箭头，表示“哪一行分数预测哪个标签”。
+// 可选的第三行写在最上面（例如说话人）。只用 viz.css 里的类和颜色。
+import { textWidth, toneClass, uid, type Tone } from '../../viz/shared';
+
+interface Row {
+  label: string;
+  values: (string | number)[];
+  tones?: Record<number, Tone>;
+}
+interface Arrow {
+  from: number; // 下行的列
+  to: number; // 上行的列
+  tone?: Tone;
+}
+interface Props {
+  roles?: Row;
+  top: Row;
+  bottom: Row;
+  arrows: Arrow[];
+  cell?: number;
+  ariaLabel?: string;
+}
+
+const { roles, top, bottom, arrows, ariaLabel } = Astro.props;
+const n = top.values.length;
+const cw = Astro.props.cell ?? 96;
+const ch = 36;
+const gap = 46;
+const headerH = 22;
+const labels = [roles?.label ?? '', top.label, bottom.label];
+const left = Math.ceil(Math.max(...labels.map((l) => textWidth(l, 13)))) + 18;
+const rolesY = headerH;
+const topY = headerH + (roles ? ch + 6 : 0);
+const bottomY = topY + ch + gap;
+const width = left + n * cw + 4;
+const height = bottomY + ch + 6;
+const x = (c: number) => left + c * cw;
+const id = uid('al');
+const arrowTones = [...new Set(arrows.map((a) => a.tone ?? 'accent'))];
+const rows = [
+  ...(roles ? [{ row: roles, y: rolesY }] : []),
+  { row: top, y: topY },
+  { row: bottom, y: bottomY },
+];
+---
+
+<svg class="viz" viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label={ariaLabel ?? '对齐示意'}>
+  <defs>
+    {arrowTones.map((t) => (
+      <marker id={`${id}-${t}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class={`viz-arrowhead ${toneClass(t)}`} d="M 0 0 L 10 5 L 0 10 z" />
+      </marker>
+    ))}
+  </defs>
+  {top.values.map((_, c) => (
+    <text class="viz-header" x={x(c) + cw / 2} y={headerH / 2} text-anchor="middle" dominant-baseline="central">t = {c}</text>
+  ))}
+  {rows.map(({ row, y }) => (
+    <g>
+      <text class="viz-label" x={left - 10} y={y + ch / 2} text-anchor="end" dominant-baseline="central">{row.label}</text>
+      {row.values.map((v, c) => (
+        <g class={`viz-cell ${toneClass(row.tones?.[c])}`}>
+          <rect x={x(c) + 2} y={y} width={cw - 4} height={ch} rx="4" />
+          <text x={x(c) + cw / 2} y={y + ch / 2} text-anchor="middle" dominant-baseline="central">{v}</text>
+        </g>
+      ))}
+    </g>
+  ))}
+  {arrows.map((a) => {
+    const t = a.tone ?? 'accent';
+    const x1 = x(a.from) + cw / 2;
+    const x2 = x(a.to) + cw / 2;
+    return (
+      <path
+        class={`viz-edge ${toneClass(t)}`}
+        d={`M ${x1} ${bottomY - 3} L ${x2} ${topY + ch + 5}`}
+        marker-end={`url(#${id}-${t})`}
+      />
+    );
+  })}
+</svg>

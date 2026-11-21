@@ -1,0 +1,173 @@
+---
+title: 给定新旧动作概率，算 PPO 裁剪损失
+description: 用新旧概率之比 r 乘优势 A，与裁剪到 [1−ε, 1+ε] 后的值两项取小，平均后取负号，得到 PPO 损失。
+sidebar:
+  label: 44. PPO 裁剪损失
+  order: 44
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Grid } from '~/components/viz';
+import ClipPlot from '~/components/figures/ppo-clip/ClipPlot.astro';
+
+<ProblemMeta slug="ppo-clip" />
+
+## 题目
+
+写 `clipped_policy_loss(old, new, adv, eps)`，返回 n 个动作的 PPO 裁剪损失。
+
+- `old[i]`、`new[i]` 是旧策略、当前策略选中第 i 个动作的概率。
+- `adv[i]` 是第 i 个动作的优势。为正表示比平均好，为负表示更差。
+
+对每一项计算：
+
+- 比值 `r = new[i] / old[i]`；
+- 把 r 限制到 `[1 − eps, 1 + eps]` 里，记作 `c`（小于下界取下界，大于上界取上界）；
+- 这一项的目标值 `min(r · A, c · A)`。
+
+返回 `−(各项目标值的平均)`。
+
+三列须等长且非空，概率都在 (0, 1] 内，`0 < eps < 1`。不满足时抛 `ValueError`（TypeScript 抛 `Error`）。结果允许 1e-9 的误差。
+
+## 样例
+
+| `old` | `new` | `adv` | `eps` | 输出 |
+|---|---|---|---|---|
+| `[0.5, 0.5, 0.5]` | `[0.8, 0.2, 0.8]` | `[2, -1, -1]` | 0.2 | `0.0` |
+| `[0.5, 0.5]` | `[0.55, 0.3]` | `[1, -2]` | 0.2 | `0.25` |
+
+- 样例 1 第 3 项：先裁剪 r 再乘 A、省掉 `min`，坏动作的惩罚会被打折，结果变成 −0.1333。
+- 样例 2：样例 1 的答案是 0，看不出符号。漏掉最后的负号，这里会得到 −0.25。
+
+## 思路
+
+逐项算 r、裁剪后的 c，取 `min(r·A, c·A)`，求平均再取负号。`min` 保证：往有利方向走最多加分到边界，往不利方向走的惩罚不打折。
+
+### r 是什么
+
+r 是新策略选这个动作的概率，相对采样那一刻的倍数。样例 1 第 1 项从 0.5 涨到 0.8，r = 1.6；第 2 项从 0.5 降到 0.2，r = 0.4。
+
+只看 `r · A`，好动作（A > 0）的 r 越大目标越高，优化器会一直推高它的概率。但数据是旧策略采的，新策略离得越远，估出的好坏越不可靠。PPO 给 r 设了范围 [1 − ε, 1 + ε]，这里是 [0.8, 1.2]。超出范围后，再往同一方向走不再加分。
+
+### 三项逐个算
+
+<Figure caption="样例 1 逐项计算。`min` 一列是每项最终取的值。">
+  <Grid
+    rows={[
+      ['0.5→0.8', '2', '1.6', '3.2', '1.2', '2.4', '2.4'],
+      ['0.5→0.2', '−1', '0.4', '−0.4', '0.8', '−0.8', '−0.8'],
+      ['0.5→0.8', '−1', '1.6', '−1.6', '1.2', '−1.2', '−1.6'],
+    ]}
+    rowHeaders={['第 1 项', '第 2 项', '第 3 项']}
+    colHeaders={['old → new', 'A', 'r', 'r·A', 'c', 'c·A', 'min']}
+    cellWidth={74}
+    tones={{ '0,5': 'accent', '0,6': 'strong', '1,5': 'accent', '1,6': 'strong', '2,3': 'accent', '2,6': 'strong' }}
+  />
+</Figure>
+
+- 第 1 项，好动作，A = 2，r = 1.6。r · A = 3.2，c = 1.2，c · A = 2.4。取 2.4，加分最多算到 1.2 倍。
+- 第 2 项，坏动作，A = −1，r = 0.4。r · A = −0.4，c = 0.8，c · A = −0.8。取 −0.8，已经压得够低，再压也不加分。
+- 第 3 项，坏动作，A = −1，r 却涨到 1.6。r · A = −1.6，c · A = −1.2。取 −1.6，往错误方向走，惩罚不打折。
+
+三项相加 2.4 − 0.8 − 1.6 = 0，损失为 0。浮点运算可能给出 7.4e-17 这样的数，在误差范围内。
+
+### 画出来看：取小的那一项是哪个
+
+下面把一个样本的目标值画成 r 的函数。实线是 `min(r·A, c·A)`，虚线是 `r·A`，浅色竖带是 [0.8, 1.2]。实心点是样例 1 三项取到的值，空心点是被 `min` 舍掉的 `r·A`。
+
+<Figure caption="左：A = 2，r 超过 1.2 后实线变平，第 1 项从 3.2 压到 2.4。右：A = −1，r 低于 0.8 时变平，第 2 项停在 −0.8；r 大于 1.2 时不裁剪，第 3 项保留 −1.6。">
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">A = 2（好动作）</p>
+      <ClipPlot
+        width={290}
+        adv={2}
+        eps={0.2}
+        yMin={-0.3}
+        yMax={4.1}
+        xTicks={[0, 0.8, 1.2, 1.6, 2]}
+        yTicks={[0, 1, 2, 3, 4]}
+        points={[
+          { r: 1.6, label: '第 1 项 2.4', dx: 4, dy: 16, anchor: 'middle' },
+          { r: 1.6, label: 'r·A = 3.2', tone: 'ghost', dx: -12, dy: -12, anchor: 'end' },
+        ]}
+      />
+    </div>
+    <div style="margin-top: 0">
+      <p class="viz-row-label">A = −1（坏动作）</p>
+      <ClipPlot
+        width={290}
+        adv={-1}
+        eps={0.2}
+        yMin={-2.1}
+        yMax={0.3}
+        xTicks={[0, 0.4, 0.8, 1.2, 1.6, 2]}
+        yTicks={[0, -0.5, -1, -1.5, -2]}
+        points={[
+          { r: 0.4, label: '第 2 项 −0.8', dx: 0, dy: 16, anchor: 'middle' },
+          { r: 0.4, label: 'r·A = −0.4', tone: 'ghost', dx: 10, dy: -16, anchor: 'start' },
+          { r: 1.6, label: '第 3 项 −1.6', dx: -10, dy: 6, anchor: 'end' },
+        ]}
+      />
+    </div>
+  </div>
+</Figure>
+
+`min` 每次取更悲观的那个，所以 PPO 的目标是不裁剪目标的一个下界。
+
+实线变平的地方，梯度是 0。样例 1 第 1、2 项都在平的地方，这一批只有第 3 项推动参数，它会把那个坏动作的概率往回拉。
+
+### 为什么最后取负号
+
+`min(...)` 得到的目标越大越好。优化器默认做梯度下降，让数值越小越好，所以取负号当损失。要返回目标而不是损失时，就不要取负。
+
+## 代码
+
+<Solution slug="ppo-clip" />
+
+TypeScript 版的第二个参数叫 `newProbs`：`new` 是 JavaScript 的保留字，不能当参数名。范围检查写成 `!(previous > 0 && previous <= 1 && …)`，`NaN` 也会被拦下。
+
+## 复杂度
+
+n 是动作的个数。
+
+- **时间 O(n)**：每一项做一次除法、一次裁剪、两次乘法和一次比较。
+- **空间 O(1)**：只累加一个 `objective`，不需要额外数组。
+
+## 自测：样例 1 的三种错误答案
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+样例 1 的正确答案是 0。
+
+如果你得到 −0.1333，是先裁剪 r 再乘 A，省掉了 `min`。第 3 项被算成了 −1.2，惩罚被打了折。
+
+如果你得到 −0.5333，是把 `min` 写成了 `max`。三项变成 3.2、−0.4、−1.2，每一项都挑了更乐观的那个。
+
+样例 2 的正确答案是 0.25。如果得到 −0.25，是漏了最后的负号。
+</Aside>
+
+本页代码还测过：新旧概率相同（损失等于 −mean(A)）、只有一项且 r = 5 被裁到 1.1、优势为 0、负优势且 r = 9 的极端项（损失 9，惩罚不裁剪）、随机 20 项与“按四种情况分段写”的版本对拍，以及空输入、长度不一致、旧概率为 0、`eps` 越界四种非法输入。
+
+## 延伸：坏动作的比值涨到 9 倍，惩罚要跟着涨到 9 倍吗？
+
+给样例 1 再加一项：旧概率 0.1，新概率 0.9，A = −1。r = 9，这一项的目标是 min(−9, −1.2) = −9。四项合计 −9，损失 2.25，几乎全来自这一项。旧概率很小时 r 容易变得极大，一条样本就能主导整批的梯度。
+
+一种改法叫 dual-clip：对 A < 0 的项，再加一个下限 `c · A`，c 是大于 1 的常数，常取 3。这一项的目标变成
+
+`max( min(r·A, clip(r)·A), c·A )`
+
+A ≥ 0 的项不受影响，`min` 已经让它们最多拿到 (1 + ε)·A。原解法只要在 `min` 之后，对负优势多做一次 `max`。
+
+取 c = 3：新加的那一项变成 max(−9, −3) = −3。四项合计 2.4 − 0.8 − 1.6 − 3 = −3，损失 0.75。原来三项的 r 都不极端，结果不变。代价是 r 超过 c 后这一项梯度为 0，这条样本不再推动参数。
+
+<Solution slug="ppo-clip" file="followup" />
+
+## 参考
+
+- [Proximal Policy Optimization Algorithms（PPO 原论文，公式 7）](https://arxiv.org/abs/1707.06347)
+- [Mastering Complex Control in MOBA Games with Deep Reinforcement Learning（dual-clip 的出处）](https://arxiv.org/abs/1912.09729)
+- [Spinning Up：PPO 讲解与参考实现](https://spinningup.openai.com/en/latest/algorithms/ppo.html)
+- 相关题目：<ProblemLink slug="gae" />、<ProblemLink slug="grpo-advantage" />、<ProblemLink slug="dpo-loss" />

@@ -1,0 +1,108 @@
+---
+// PPO 裁剪目标随比值 r 变化的折线图（单个样本、固定优势 A）。
+// 实线：min(r·A, clip(r)·A)；虚线：不裁剪的 r·A；浅色带：[1−ε, 1+ε]。
+// 颜色只用 viz.css 里的变量和类，深浅色自动切换。
+import { toneClass, type Tone } from '~/components/viz/shared';
+
+interface Point {
+  r: number;
+  label: string;
+  tone?: Tone; // strong：真实取值点；ghost：被 min 舍弃的 r·A
+  dx?: number;
+  dy?: number;
+  anchor?: 'start' | 'middle' | 'end';
+}
+interface Props {
+  adv: number;
+  eps: number;
+  rMax?: number;
+  yMin: number;
+  yMax: number;
+  xTicks: number[];
+  yTicks: number[];
+  points?: Point[];
+  width?: number;
+  height?: number;
+  ariaLabel?: string;
+}
+
+const {
+  adv,
+  eps,
+  rMax = 2,
+  yMin,
+  yMax,
+  xTicks,
+  yTicks,
+  points = [],
+  width = 300,
+  height = 220,
+  ariaLabel,
+} = Astro.props;
+
+const left = 40;
+const right = 14;
+const top = 22;
+const bottom = 30;
+const px = (r: number) => left + (r / rMax) * (width - left - right);
+const py = (y: number) => top + ((yMax - y) / (yMax - yMin)) * (height - top - bottom);
+const clip = (r: number) => Math.min(1 + eps, Math.max(1 - eps, r));
+const objective = (r: number) => Math.min(r * adv, clip(r) * adv);
+const fmt = (v: number) => String(Math.round(v * 100) / 100).replace('-', '−');
+
+// 目标函数是分段线性的，只需在折点处取值
+const knots = [0, 1 - eps, 1 + eps, rMax];
+const solid = knots.map((r, i) => `${i ? 'L' : 'M'} ${px(r).toFixed(1)} ${py(objective(r)).toFixed(1)}`).join(' ');
+const dashed = `M ${px(0)} ${py(0)} L ${px(rMax).toFixed(1)} ${py(rMax * adv).toFixed(1)}`;
+const valueOf = (p: Point) => (p.tone === 'ghost' ? p.r * adv : objective(p.r));
+---
+
+<svg class="viz clip-plot" viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label={ariaLabel ?? `A=${adv} 时的裁剪目标`}>
+  <rect class="clip-band" x={px(1 - eps)} y={top} width={px(1 + eps) - px(1 - eps)} height={height - top - bottom} />
+  {yTicks.map((y) => (
+    <g class="viz-tick">
+      <line x1={left} x2={width - right} y1={py(y)} y2={py(y)} />
+      <text x={left - 6} y={py(y)} text-anchor="end" dominant-baseline="central">{fmt(y)}</text>
+    </g>
+  ))}
+  {xTicks.map((r) => (
+    <text class="viz-index" x={px(r)} y={height - bottom + 16} text-anchor="middle">{fmt(r)}</text>
+  ))}
+  <line class="viz-axis" x1={left} x2={width - right} y1={py(0)} y2={py(0)} />
+  <line class="viz-axis" x1={left} x2={left} y1={top} y2={height - bottom} />
+  <text class="viz-index" x={left - 6} y={height - bottom + 16} text-anchor="end">r =</text>
+  <path class="viz-edge dashed" d={dashed} />
+  <path class="viz-edge t-accent" d={solid} />
+  {points.map((p) => {
+    const x = px(p.r);
+    const y = py(valueOf(p));
+    return (
+      <g class={`viz-node ${toneClass(p.tone ?? 'strong')}`}>
+        <circle cx={x} cy={y} r={p.tone === 'ghost' ? 4.5 : 5} />
+        <text class="clip-label" x={x + (p.dx ?? 8)} y={y + (p.dy ?? -10)} text-anchor={p.anchor ?? 'start'} dominant-baseline="central">
+          {p.label}
+        </text>
+      </g>
+    );
+  })}
+</svg>
+
+<style>
+  .clip-band {
+    fill: var(--viz-accent-soft);
+    opacity: 0.6;
+  }
+  svg.clip-plot .viz-node.t-ghost circle {
+    stroke: var(--viz-muted);
+    stroke-width: 1.4;
+  }
+  svg.clip-plot .viz-node text.clip-label {
+    font-family: var(--sl-font);
+    font-size: 12px;
+    font-weight: 400;
+    fill: var(--viz-ink);
+  }
+  svg.clip-plot .viz-node.t-ghost text.clip-label {
+    fill: var(--viz-muted);
+  }
+</style>

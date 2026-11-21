@@ -1,0 +1,59 @@
+---
+// 一根按数值比例切分的横条，上方用括号标出几段的合计。只用 viz.css 里的类和颜色。
+import { textWidth, toneClass, type Tone } from '../../viz/shared';
+
+interface Segment {
+  label: string;
+  value: number;
+  tone?: Tone;
+}
+interface Bracket {
+  from: number; // 段下标，含
+  to: number; // 段下标，含
+  label: string;
+}
+interface Props {
+  segments: Segment[];
+  brackets?: Bracket[];
+  width?: number;
+  ariaLabel?: string;
+}
+
+const { segments, brackets = [], width: barW = 600, ariaLabel } = Astro.props;
+const total = segments.reduce((s, x) => s + x.value, 0);
+const pad = 6;
+const barTop = brackets.length ? 34 : 6;
+const barH = 34;
+const xs: number[] = [pad];
+for (const s of segments) xs.push(xs[xs.length - 1] + (s.value / total) * barW);
+const width = barW + pad * 2;
+const height = barTop + barH + 8;
+---
+
+<svg class="viz" viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label={ariaLabel ?? '比例条'}>
+  {segments.map((s, i) => {
+    const w = xs[i + 1] - xs[i];
+    const fits = textWidth(s.label, 13) + 10 <= w;
+    return (
+      <g class={`viz-cell ${toneClass(s.tone)}`}>
+        {w >= 0.5 && <rect x={xs[i]} y={barTop} width={w} height={barH} rx="3" />}
+        {fits && (
+          <text x={(xs[i] + xs[i + 1]) / 2} y={barTop + barH / 2} text-anchor="middle" dominant-baseline="central" style="font-size:13px">
+            {s.label}
+          </text>
+        )}
+      </g>
+    );
+  })}
+  {brackets.map((b) => {
+    const x1 = xs[b.from] + 2;
+    const x2 = xs[b.to + 1] - 2;
+    const y = barTop - 8;
+    return (
+      <g class="viz-range t-accent">
+        <path d={`M ${x1} ${y + 6} V ${y} H ${x2} V ${y + 6}`} />
+        <text x={(x1 + x2) / 2} y={y - 6} text-anchor="middle">{b.label}</text>
+      </g>
+    );
+  })}
+</svg>

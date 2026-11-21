@@ -1,0 +1,155 @@
+---
+title: 截取覆盖所有检索词的最短原文
+description: 用滑动窗口加“还欠几份”的计数，找出包含全部查询词（含重复次数）的最短连续片段。
+sidebar:
+  label: 6. 覆盖检索词的最短原文
+  order: 6
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { ArrayCells, Grid, Stepper, Step } from '~/components/viz';
+
+export const tokens = ['A', 'X', 'B', 'A', 'C', 'A', 'B'];
+export const winTones = (l, r, cur, warn) =>
+  tokens.map((_, i) => (i === cur ? 'strong' : i < l ? 'muted' : i < r ? (warn ? 'warn' : 'accent') : null));
+export const frames = [
+  { l: 0, r: 1, cur: 0, a: 1, b: 1, rem: 2, label: '[0, 1)',
+    caption: '读入下标 0 的 `A`。A 原来欠 2 份，现在欠 1 份，`remaining` 从 3 减到 2。' },
+  { l: 0, r: 3, cur: 2, a: 1, b: 1, rem: 1, b0: true, label: '[0, 3)',
+    caption: '读入 `X`：不是查询词，账本不变。再读入下标 2 的 `B`：B 欠 1 份，还清，`remaining` 变成 1。' },
+  { l: 0, r: 4, cur: 3, a: 0, b: 0, rem: 0, label: '[0, 4) 长度 4',
+    caption: '读入下标 3 的 `A`，A 也还清了，`remaining = 0`。窗口 [0, 4) 合法，记下 `best = (0, 4)`，长度 4。' },
+  { l: 1, r: 4, cur: 0, a: 1, b: 0, rem: 1, label: '[1, 4)',
+    caption: '收左端：移出下标 0 的 `A`，A 又欠 1 份，`remaining` 回到 1，停止收缩。' },
+  { l: 1, r: 6, cur: 5, a: 0, b: 0, rem: 0, label: '[1, 6) 长度 5',
+    caption: '读入 `C`（不相关），再读入下标 5 的 `A`，`remaining` 又是 0。窗口 [1, 6) 长度 5，不比 4 短，`best` 不变。' },
+  { l: 2, r: 6, cur: 1, a: 0, b: 0, rem: 0, label: '[2, 6) 长度 4',
+    caption: '收左端：移出 `X`，账本不变，窗口 [2, 6) 仍然合法，长度 4。和 `best` 一样长，不更新，保留靠左的 (0, 4)。' },
+  { l: 3, r: 6, cur: 2, a: 0, b: 1, rem: 1, label: '[3, 6)',
+    caption: '移出下标 2 的 `B`，B 又欠 1 份，`remaining = 1`，停止收缩。' },
+  { l: 3, r: 7, cur: 6, a: 0, b: 0, rem: 0, label: '[3, 7) 长度 4',
+    caption: '读入下标 6 的 `B`，`remaining = 0`，窗口 [3, 7) 合法，长度 4，仍不比 `best` 短。' },
+  { l: 4, r: 7, cur: 3, a: 1, b: 0, rem: 1, label: '[4, 7)',
+    caption: '移出下标 3 的 `A`，又欠一份 A。右端已经到头，结束。答案 `(0, 4)`。' },
+  { l: 3, r: 7, cur: -1, a: 0, b: 0, rem: 0, label: '[3, 7)？', warn: true,
+    caption: '如果比较写成“长度 ≤ best 就更新”，[2, 6) 和 [3, 7) 都会把 `best` 覆盖掉，最后返回 (3, 7)。题目要的是最靠左的 (0, 4)。' },
+];
+
+<ProblemMeta slug="shortest-evidence-window" />
+
+## 题目
+
+原文是切好词的列表 `tokens`，查询词列表是 `wanted`，可能有重复。找出 `tokens` 里最短的连续区间，使 `wanted` 里每个词在区间内出现的次数**不少于**它在 `wanted` 里的次数。例如 `wanted` 有两个 `A`，区间里至少要有两个 `A`。
+
+- 用半开区间 `(left, right)` 表示 `tokens[left:right]`，包含 `left`，不包含 `right`。
+- 最短的区间有多个时，返回 `left` 最小的那个。
+- 找不到时返回 `None`（TypeScript 版返回 `null`）。
+- `wanted` 为空时返回 `(0, 0)`。
+- 词按字符串整体比较，区分大小写。
+
+## 样例
+
+| `tokens` | `wanted` | 输出 |
+|---|---|---|
+| `["A","X","B","A","C","A","B"]` | `["A","A","B"]` | `(0, 4)` |
+| `["A","X","B","A","C","A","B"]` | `["A","B"]` | `(2, 4)` |
+| `["A","X","B","A","C","A","B"]` | `[]` | `(0, 0)` |
+| `["A","X","B","A","C","A","B"]` | `["A","A","A","A"]` | `None` |
+
+第一个样例里，[0, 4)、[2, 6)、[3, 7) 三段都有两个 `A` 和一个 `B`，长度都是 4，取最靠左的 [0, 4)。它检查两件事：`A` 要数够两份；长度并列时不能被后面的窗口覆盖。第二个样例只要一个 `A`，最短的是 `B A` 这一段 [2, 4)。
+
+## 思路
+
+用滑动窗口：右端每往右挪一格，就把左端尽量往右收，直到再收就不合法。用一本“还欠几份”的账判断窗口是否合法。
+
+暴力枚举有 O(n²) 个区间，每个检查 O(n)。滑动窗口的左右两端都只往右走，总共 O(n) 步。
+
+账本有两项：
+
+- `need[w]`：词 w 还欠几份。开始时就是 `wanted` 里的计数，样例 1 是 A 欠 2、B 欠 1。
+- `remaining`：一共还欠几份，开始是 3。它等于 0 时，窗口合法。
+
+右端读入查询词 w 时，`need[w]` 减 1。只有减之前 `need[w] > 0`，这一份才是真欠着的，`remaining` 才减 1。左端移出 w 时反过来：`need[w]` 加 1，加完大于 0 说明移走的是必需的一份，`remaining` 加 1。
+
+<Stepper title="tokens = A X B A C A B，wanted = A A B">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div>
+          <p class="viz-row-label">原文与窗口 [left, right)</p>
+          <ArrayCells
+            values={tokens}
+            tones={winTones(f.l, f.r, f.cur, f.warn)}
+            ranges={[{ from: f.l, to: f.r - 1, label: f.label, tone: f.warn ? 'warn' : 'accent' }]}
+            cell={42}
+          />
+        </div>
+        <div style="margin-top: 0">
+          <p class="viz-row-label">账本 need</p>
+          <Grid
+            colHeaders={['词', '还欠']}
+            rows={[['A', f.a], ['B', f.b], ['合计', f.rem]]}
+            tones={f.rem === 0 ? { '2,1': f.warn ? 'warn' : 'accent' } : {}}
+          />
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+收左端不会错过答案。窗口 [left, right) 合法时，以 `left` 开头的合法区间里它已经最短，右端再往右只会更长。记下它以后，`left` 这个起点就可以丢掉。
+
+`need[w]` 可以是负数，表示窗口里这个词多出几份。例如 `tokens = ["A","A","A","B","A"]`、`wanted = ["A","B"]`：读完前三个 `A`，A 的账是 1 − 3 = −2。读入 `B` 后窗口合法，开始收左端。移出第一个 `A`，账变成 −1；移出第二个，账变成 0，都不欠；移出第三个，账变成 1，才又欠上。答案是 `(2, 4)`。如果把负数截成 0，第一次移出就会误以为欠上了。
+
+## 代码
+
+<Solution slug="shortest-evidence-window" />
+
+Python 用 `Counter` 做账本，TypeScript 用 `Map`。两者都只为查询词建账，不在 `wanted` 里的词直接跳过。判断用 `word in need` 和 `need.has(word)`，不要看 `need[word]` 的真假，因为账是 0 时它照样是查询词。
+
+Python 版的 `right` 从 1 开始数，直接就是半开区间的右端；TypeScript 版用 `right - 1` 取当前词，含义相同。返回值 Python 是元组，TypeScript 是长度为 2 的数组 `[left, right]`。
+
+## 复杂度
+
+n 是原文的词数，m 是查询词的个数（含重复），u 是查询里不同词的个数。
+
+- **时间 O(n + m)**：建账本 O(m)。`right` 从头走到尾，`left` 也最多走 n 步，每一步只做常数次字典操作。
+- **空间 O(u)**：账本里只有查询词。
+
+## 自测：两个容易写错的输入
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`tokens = ["A","X","B","A","C","A","B"]`，`wanted = ["A","A","B"]`，正确答案是 `(0, 4)`。如果你得到 `(2, 4)`，说明把 `wanted` 当成了集合，只要求出现一次 `A`。如果你得到 `(3, 7)`，说明更新 `best` 时用了“小于等于”，并列的窗口覆盖了先找到的那个。
+
+`tokens = ["A","A","A","B","A"]`，`wanted = ["A","B"]`，正确答案是 `(2, 4)`。如果你得到 `(0, 4)`，多半是账本把负数截成了 0，或者每读一个词只收缩一次（把收缩的 `while` 写成了 `if`）。
+</Aside>
+
+测试还覆盖了查询为空、原文为空、两者都为空、词的份数不够、单个词、需要整段原文、中文词，以及 80 个随机词里找“一个工具、两个缓存、一个记忆”。另外在 3000 组随机输入上和暴力枚举对比过，结果一致。
+
+## 延伸：查询词必须按顺序出现呢？
+
+改一个条件：`wanted` 里的词必须在窗口中按给定顺序出现，中间可以夹别的词，也就是 `wanted` 是窗口的子序列。
+
+账本只记每个词还欠几份，不管先后，不再够用。样例 1 的 [0, 4) 是 `A X B A`，出现顺序是 A、B、A，不是 A、A、B，不合法。
+
+改成按顺序匹配。`start[j]` 记录：读到目前为止，按顺序匹配完 `wanted[0..j]` 时，第一个词最晚能从哪里开始。读入第 r 个词时，j 从大到小检查：
+
+- 词等于 `wanted[0]` 时，`start[0] = r`。
+- 词等于 `wanted[j]` 且 `start[j − 1]` 已有值时，`start[j] = start[j − 1]`。
+
+j 从大到小，同一个词就不会在这一步既当 `wanted[j − 1]` 又当 `wanted[j]`。每当词等于最后一个查询词，`(start[m − 1], r + 1)` 就是以 r 结尾的最短候选。
+
+在样例 1 上走到最后一个 `B`（下标 6）：`start[0]` 是最近的 `A`，下标 5；`start[1]` 是“A、A”最晚的起点，下标 3（用了下标 3 和 5 两个 `A`）；于是 `start[2] = 3`，答案是 (3, 7)。(0, 4) 和 (2, 6) 都不满足顺序。
+
+<Solution slug="shortest-evidence-window" file="followup" />
+
+时间变成 O(n·m)：每读一个词都要把 m 个查询位置扫一遍，空间 O(m)。这个做法在 500 组随机输入上和暴力枚举对比过。
+
+## 参考
+
+- [力扣 76 · 最小覆盖子串](https://leetcode.cn/problems/minimum-window-substring/)：同一个滑动窗口，按字符计数。
+- [力扣 727 · 最小窗口子序列](https://leetcode.cn/problems/minimum-window-subsequence/)：延伸里的按顺序版本。
+- 同样是“窗口只往右走”的题：<ProblemLink slug="longest-unique-substring" />；把多处命中合并成区间：<ProblemLink slug="merge-hit-spans" />

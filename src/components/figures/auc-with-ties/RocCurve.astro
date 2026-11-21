@@ -1,0 +1,70 @@
+---
+// 单题图示：ROC 折线。points 按阈值从高到低给出，坐标是 (假正率, 真正率)，都在 0–1。
+// tie 为真的那一段来自正负同分的一组样本，画成虚线斜边；曲线下方的面积用浅色填充。
+interface Point {
+  x: number;
+  y: number;
+  label?: string;
+  tie?: boolean;
+  dx?: number; // 标签相对点的偏移
+  dy?: number;
+  anchor?: 'start' | 'middle' | 'end';
+}
+interface Props {
+  points: Point[];
+  size?: number;
+  xTicks?: string[];
+  yTicks?: string[];
+  ariaLabel?: string;
+}
+
+const { points, size = 220, xTicks = [], yTicks = [], ariaLabel = 'ROC 曲线' } = Astro.props;
+const left = 58;
+const top = 14;
+const bottom = 40;
+const right = 120;
+const width = left + size + right;
+const height = top + size + bottom;
+const px = (x: number) => left + x * size;
+const py = (y: number) => top + (1 - y) * size;
+const area = `M ${px(points[0].x)} ${py(0)} ` + points.map((p) => `L ${px(p.x)} ${py(p.y)}`).join(' ') + ` L ${px(points[points.length - 1].x)} ${py(0)} Z`;
+const segs = points.slice(1).map((p, i) => ({ a: points[i], b: p }));
+---
+
+<svg class="viz" viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label={ariaLabel}>
+  <path d={area} style="fill: var(--viz-accent-soft); stroke: none" />
+  {xTicks.map((t, i) => {
+    const x = px(i / Math.max(xTicks.length - 1, 1));
+    return (
+      <g class="viz-tick">
+        <line x1={x} x2={x} y1={top} y2={top + size} />
+        <text x={x} y={top + size + 16} text-anchor="middle">{t}</text>
+      </g>
+    );
+  })}
+  {yTicks.map((t, i) => {
+    const y = py(i / Math.max(yTicks.length - 1, 1));
+    return (
+      <g class="viz-tick">
+        <line x1={left} x2={left + size} y1={y} y2={y} />
+        <text x={left - 8} y={y + 4} text-anchor="end">{t}</text>
+      </g>
+    );
+  })}
+  <line class="viz-axis" x1={left} x2={left + size} y1={top + size} y2={top + size} />
+  <line class="viz-axis" x1={left} x2={left} y1={top} y2={top + size} />
+  <line class="viz-edge dashed t-muted" x1={px(0)} y1={py(0)} x2={px(1)} y2={py(1)} />
+  {segs.map(({ a, b }) => (
+    <path class:list={['viz-edge', b.tie ? 't-accent dashed' : 't-accent']} d={`M ${px(a.x)} ${py(a.y)} L ${px(b.x)} ${py(b.y)}`} />
+  ))}
+  {points.map((p) => (
+    <g class="viz-node t-strong">
+      <circle cx={px(p.x)} cy={py(p.y)} r="3.5" />
+    </g>
+  ))}
+  {points.filter((p) => p.label).map((p) => (
+    <text class="viz-sub" x={px(p.x) + (p.dx ?? 9)} y={py(p.y) + (p.dy ?? 4)} text-anchor={p.anchor ?? 'start'} font-size="12">{p.label}</text>
+  ))}
+  <text class="viz-label" x={14} y={top + size / 2} text-anchor="middle" font-size="12" transform={`rotate(-90 14 ${top + size / 2})`}>真正率（正样本被判为正的比例）</text>
+  <text class="viz-label" x={left + size / 2} y={height - 4} text-anchor="middle" font-size="12">假正率（负样本被判为正的比例）</text>
+</svg>

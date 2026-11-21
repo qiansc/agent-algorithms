@@ -1,0 +1,112 @@
+---
+// 节点和边：依赖图、搜索树、流程图都用它。坐标由调用方给出，或者先用 treeLayout 排好。
+import { textWidth, toneClass, uid, type GraphEdge, type GraphNode } from './shared';
+
+interface Props {
+  nodes: GraphNode[];
+  edges?: GraphEdge[];
+  width?: number;
+  height?: number;
+  ariaLabel?: string;
+}
+
+const { nodes, edges = [], ariaLabel } = Astro.props;
+const byId = new Map(nodes.map((n) => [n.id, n]));
+
+function size(n: GraphNode) {
+  if ((n.shape ?? 'circle') === 'circle') {
+    const r = n.r ?? Math.max(19, Math.ceil(textWidth(n.label, 14) / 2) + 9);
+    return { w: r * 2, h: r * 2, r };
+  }
+  const w = n.w ?? Math.ceil(Math.max(textWidth(n.label, 14), textWidth(n.sub ?? '', 12)) + 26);
+  const h = n.h ?? (n.sub ? 50 : 36);
+  return { w, h, r: 0 };
+}
+
+// 线段与节点边界的交点，让箭头停在节点外缘。
+function clip(n: GraphNode, tx: number, ty: number): [number, number] {
+  const s = size(n);
+  const dx = tx - n.x;
+  const dy = ty - n.y;
+  const len = Math.hypot(dx, dy) || 1;
+  if ((n.shape ?? 'circle') === 'circle') return [n.x + (dx / len) * (s.r + 2), n.y + (dy / len) * (s.r + 2)];
+  const sx = Math.abs(dx) > 1e-9 ? s.w / 2 / Math.abs(dx) : Infinity;
+  const sy = Math.abs(dy) > 1e-9 ? s.h / 2 / Math.abs(dy) : Infinity;
+  const k = Math.min(sx, sy);
+  return [n.x + dx * k + (dx / len) * 2, n.y + dy * k + (dy / len) * 2];
+}
+
+let maxX = 0;
+let maxY = 0;
+for (const n of nodes) {
+  const s = size(n);
+  maxX = Math.max(maxX, n.x + s.w / 2 + (n.sub && (n.shape ?? 'circle') === 'circle' ? textWidth(n.sub, 12) / 2 : 0));
+  maxY = Math.max(maxY, n.y + s.h / 2 + (n.sub && (n.shape ?? 'circle') === 'circle' ? 20 : 0));
+}
+const width = Astro.props.width ?? Math.ceil(maxX + 12);
+const height = Astro.props.height ?? Math.ceil(maxY + 10);
+const id = uid('gr');
+const tones = [...new Set(edges.map((e) => e.tone ?? 'default'))];
+
+const drawn = edges.map((e) => {
+  const a = byId.get(e.from);
+  const b = byId.get(e.to);
+  if (!a || !b) throw new Error(`edge ${e.from}->${e.to} refers to a missing node`);
+  const bend = e.bend ?? 0;
+  const mx = (a.x + b.x) / 2;
+  const my = (a.y + b.y) / 2;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const qx = mx - (dy / len) * bend;
+  const qy = my + (dx / len) * bend;
+  const [sx, sy] = clip(a, bend ? qx : b.x, bend ? qy : b.y);
+  const [ex, ey] = clip(b, bend ? qx : a.x, bend ? qy : a.y);
+  const d = bend ? `M ${sx} ${sy} Q ${qx} ${qy} ${ex} ${ey}` : `M ${sx} ${sy} L ${ex} ${ey}`;
+  const lx = bend ? (sx + 2 * qx + ex) / 4 : (sx + ex) / 2;
+  const ly = bend ? (sy + 2 * qy + ey) / 4 : (sy + ey) / 2;
+  return { e, d, lx, ly };
+});
+---
+
+<svg class="viz" viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label={ariaLabel ?? '图'}>
+  <defs>
+    {tones.map((t) => (
+      <marker id={`${id}-${t}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class={`viz-arrowhead ${toneClass(t)}`} d="M 0 0 L 10 5 L 0 10 z" />
+      </marker>
+    ))}
+  </defs>
+  {drawn.map(({ e, d }) => (
+    <path
+      class:list={['viz-edge', toneClass(e.tone), { dashed: e.dashed }]}
+      d={d}
+      marker-end={e.directed === false ? undefined : `url(#${id}-${e.tone ?? 'default'})`}
+    />
+  ))}
+  {drawn.map(({ e, lx, ly }) =>
+    e.label ? (
+      <g class={`viz-edge-label ${toneClass(e.tone)}`}>
+        <rect x={lx - textWidth(e.label, 12) / 2 - 4} y={ly - 9} width={textWidth(e.label, 12) + 8} height="18" rx="4" />
+        <text x={lx} y={ly} text-anchor="middle" dominant-baseline="central">{e.label}</text>
+      </g>
+    ) : null,
+  )}
+  {nodes.map((n) => {
+    const s = size(n);
+    const circle = (n.shape ?? 'circle') === 'circle';
+    return (
+      <g class={`viz-node ${toneClass(n.tone)}`}>
+        {circle ? (
+          <circle cx={n.x} cy={n.y} r={s.r} />
+        ) : (
+          <rect x={n.x - s.w / 2} y={n.y - s.h / 2} width={s.w} height={s.h} rx="7" />
+        )}
+        <text x={n.x} y={!circle && n.sub ? n.y - 9 : n.y} text-anchor="middle" dominant-baseline="central">{n.label}</text>
+        {n.sub && (
+          <text class:list={['viz-sub', { inside: !circle }]} x={n.x} y={circle ? n.y + s.r + 13 : n.y + 11} text-anchor="middle" dominant-baseline="central">{n.sub}</text>
+        )}
+      </g>
+    );
+  })}
+</svg>

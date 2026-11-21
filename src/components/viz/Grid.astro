@@ -1,0 +1,103 @@
+---
+// 表格类图示：DP 表、矩阵、注意力权重、网格地图。
+// tones 用 "行,列" 作键；heat 给出 0–1 的深浅，用强调色的透明度表示。
+import { textWidth, toneClass, uid, type Tone } from './shared';
+
+interface Arrow {
+  from: [number, number];
+  to: [number, number];
+  tone?: Tone;
+}
+interface Props {
+  rows: (string | number | null)[][];
+  rowHeaders?: (string | number)[];
+  colHeaders?: (string | number)[];
+  corner?: string;
+  tones?: Record<string, Tone>;
+  heat?: number[][];
+  arrows?: Arrow[];
+  cellWidth?: number;
+  cellHeight?: number;
+  ariaLabel?: string;
+}
+
+const {
+  rows,
+  rowHeaders,
+  colHeaders,
+  corner,
+  tones = {},
+  heat,
+  arrows = [],
+  cellHeight: chh = 36,
+  ariaLabel,
+} = Astro.props;
+
+const nCols = Math.max(0, ...rows.map((r) => r.length));
+const texts = rows.flat().map((v) => textWidth(v ?? '', 14));
+const headerTexts = (colHeaders ?? []).map((v) => textWidth(v, 13));
+const cw = Astro.props.cellWidth ?? Math.max(40, Math.ceil(Math.max(0, ...texts, ...headerTexts) + 18));
+const rhw = rowHeaders
+  ? Math.ceil(Math.max(textWidth(corner ?? '', 13), ...rowHeaders.map((h) => textWidth(h, 13)))) + 16
+  : 0;
+const chH = colHeaders ? 26 : 0;
+const pad = 4;
+const width = pad * 2 + rhw + nCols * cw;
+const height = pad * 2 + chH + rows.length * chh;
+const cx = (c: number) => pad + rhw + c * cw;
+const cy = (r: number) => pad + chH + r * chh;
+const mid = (r: number, c: number): [number, number] => [cx(c) + cw / 2, cy(r) + chh / 2];
+const id = uid('g');
+const arrowTones = [...new Set(arrows.map((a) => a.tone ?? 'accent'))];
+---
+
+<svg class="viz" viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label={ariaLabel ?? '表格'}>
+  {arrows.length > 0 && (
+    <defs>
+      {arrowTones.map((t) => (
+        <marker id={`${id}-${t}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path class={`viz-arrowhead ${toneClass(t)}`} d="M 0 0 L 10 5 L 0 10 z" />
+        </marker>
+      ))}
+    </defs>
+  )}
+  {corner && rowHeaders && (
+    <text class="viz-header" x={pad + rhw - 8} y={pad + chH / 2} text-anchor="end" dominant-baseline="central">{corner}</text>
+  )}
+  {colHeaders?.map((h, c) => (
+    <text class="viz-header" x={cx(c) + cw / 2} y={pad + chH / 2} text-anchor="middle" dominant-baseline="central">{h}</text>
+  ))}
+  {rowHeaders?.map((h, r) => (
+    <text class="viz-header" x={pad + rhw - 8} y={cy(r) + chh / 2} text-anchor="end" dominant-baseline="central">{h}</text>
+  ))}
+  {rows.map((row, r) =>
+    row.map((v, c) => {
+      const tone = tones[`${r},${c}`];
+      const h = heat?.[r]?.[c];
+      return (
+        <g class={`viz-cell ${toneClass(tone)}`}>
+          <rect x={cx(c) + 1} y={cy(r) + 1} width={cw - 2} height={chh - 2} rx="3" />
+          {h !== undefined && h !== null && (
+            <rect class="viz-heat" x={cx(c) + 1} y={cy(r) + 1} width={cw - 2} height={chh - 2} rx="3" style={`fill-opacity:${(0.08 + 0.72 * h).toFixed(3)}`} />
+          )}
+          <text class:list={[{ 'on-heat': h !== undefined && h !== null && h > 0.55 }]} x={cx(c) + cw / 2} y={cy(r) + chh / 2} text-anchor="middle" dominant-baseline="central">
+            {v ?? ''}
+          </text>
+        </g>
+      );
+    }),
+  )}
+  {arrows.map((a) => {
+    const [x1, y1] = mid(...a.from);
+    const [x2, y2] = mid(...a.to);
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const sx = x1 + (dx / len) * 9;
+    const sy = y1 + (dy / len) * 8;
+    const ex = x2 - (dx / len) * 11;
+    const ey = y2 - (dy / len) * 9;
+    const t = a.tone ?? 'accent';
+    return <path class={`viz-edge ${toneClass(t)}`} d={`M ${sx} ${sy} L ${ex} ${ey}`} marker-end={`url(#${id}-${t})`} />;
+  })}
+</svg>

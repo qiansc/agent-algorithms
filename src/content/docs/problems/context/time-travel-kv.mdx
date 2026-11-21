@@ -1,0 +1,153 @@
+---
+title: 回放对话时，当时生效的是哪个偏好
+description: 按键保存带时刻的历史，查询时用二分找“最后一条不晚于 t 的写入”，查询 O(log m)。
+sidebar:
+  label: 15. 当时生效的是哪个偏好
+  order: 15
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Lanes, Stepper, Step } from '~/components/viz';
+
+export const times = [1, 4, 7, 12, 15, ''];
+export const vals = ['简洁', '详细', '简洁', '表格', '详细', ''];
+export const frames = [
+  {
+    lo: 0, hi: 5, mid: null, muted: [], pick: null,
+    caption: '查 `get(回复风格, 12)`，找第一条写入时刻大于 12 的位置。它可能在数组末尾之外，所以 `hi` 从 5 开始。',
+  },
+  {
+    lo: 0, hi: 5, mid: 2, muted: [], pick: null,
+    caption: '`mid = (0 + 5) // 2 = 2`，`times[2] = 7`。7 ≤ 12，下标 2 及其左边都不是答案，`lo = 3`。',
+  },
+  {
+    lo: 3, hi: 5, mid: 4, muted: [0, 1, 2], pick: null,
+    caption: '`mid = (3 + 5) // 2 = 4`，`times[4] = 15`。15 > 12，下标 4 可能是答案，左边也许还有，`hi = 4`。',
+  },
+  {
+    lo: 3, hi: 4, mid: 3, muted: [0, 1, 2, 4], pick: null,
+    caption: '`mid = 3`，`times[3] = 12`。12 ≤ 12，等于也算不晚于，这条写入已经生效，`lo = 4`。',
+  },
+  {
+    lo: 4, hi: 4, mid: null, muted: [0, 1, 2], pick: 3,
+    caption: '`lo == hi == 4`，循环结束。往前退一格，下标 3 的“表格”就是 12 时刻生效的偏好。',
+  },
+  {
+    lo: 0, hi: 0, mid: null, muted: [0, 1, 2, 3, 4], pick: null, warn: true,
+    caption: '换成查 `get(回复风格, 0)`：每条写入都比 0 晚，位置是 0，返回 `None`。如果直接取 `values[pos - 1]`，Python 的 `values[-1]` 会返回最新的“详细”。',
+  },
+];
+
+<ProblemMeta slug="time-travel-kv" />
+
+## 题目
+
+实现一个类 `TimeMap`，按时刻记录每个键的值，并查出任一时刻生效的值：
+
+- `set(key, t, value)`：在整数时刻 `t` 把 `key` 设为字符串 `value`。不同的键互不影响。
+- 同一个键的写入时刻严格递增。`t` 不大于这个键上一次写入的时刻时，抛出 `ValueError`（TypeScript 抛 `RangeError`）。
+- `get(key, t)`：返回写入时刻 ≤ `t` 的写入里最晚那一条的值。键从没写过，或者 `t` 早于它的第一次写入，返回 `None`（TypeScript 返回 `null`）。
+- 查询时刻任意，不要求递增，也可以是负数。
+
+## 样例
+
+座位偏好在时刻 3 设为“靠窗”，时刻 10 改为“过道”：
+
+| 查询 | 结果 | 说明 |
+|---|---|---|
+| `get(座位, 2)` | `None` | 时刻 2 还没设置过 |
+| `get(座位, 3)` | `靠窗` | 写入时刻等于查询时刻，已经生效 |
+| `get(座位, 9)` | `靠窗` | 时刻 10 的修改还没发生 |
+| `get(座位, 10)` | `过道` | 时刻 10 的修改在这一刻生效 |
+| `get(语言, 5)` | `None` | 这个键从没写过 |
+
+`get(座位, 2)` 防的是负下标：二分得到位置 0 时如果照样取“前一个”，Python 会取到最后一个元素“过道”。`get(座位, 10)` 防的是把 `<=` 写成 `<`：那样会返回“靠窗”。
+
+<Figure caption="座位偏好在时间轴上的生效区间。每条竖线是一次查询，读出的值就是竖线落在的那一段。">
+  <Lanes
+    lanes={[{ label: '座位', items: [{ start: 3, end: 10, label: '靠窗' }, { start: 10, end: 14, label: '过道', tone: 'soft' }] }]}
+    from={0}
+    to={14}
+    marks={[{ at: 2, label: '查 2', tone: 'accent' }, { at: 3, label: '查 3', tone: 'accent' }, { at: 9, label: '查 9', tone: 'accent' }, { at: 10, label: '查 10', tone: 'accent' }]}
+  />
+</Figure>
+
+## 思路
+
+每个键的写入按时刻排好序，查询时用二分找最后一条时刻 ≤ t 的写入。
+
+给每个键存两张并排的表：`times` 记写入时刻，`values` 记对应的值。写入时刻递增，所以 `set` 只要往两张表末尾各追加一项。
+
+“最后一条时刻 ≤ t”不太好直接找，翻过来更简单：找**第一条时刻 > t 的写入**，它前面那一条就是答案。这个位置就是二分查找的上界，Python 里是 `bisect_right(times, t)`。座位的例子里 `times = [3, 10]`：
+
+- 查 9：第一条大于 9 的是下标 1（时刻 10），前一条是下标 0，“靠窗”。
+- 查 10：两条都不大于 10，位置落在末尾之外，也就是 2。前一条是下标 1，“过道”。
+- 查 2：第一条就大于 2，位置是 0。前面没有写入，返回 `None`。
+
+两条写入看不出二分的过程。换一个有五条历史的键“回复风格”，走一遍 `bisect_right` 的循环：
+
+<Stepper title="在 times = [1, 4, 7, 12, 15] 里找第一个大于 12 的位置">
+  {frames.map((f) => {
+    const tones = times.map((_, i) => (i === 5 ? 'ghost' : f.muted.includes(i) ? 'muted' : i === f.mid ? 'strong' : null));
+    const ptr = [{ at: f.lo, label: f.lo === f.hi ? 'lo = hi' : 'lo' }];
+    if (f.lo !== f.hi) ptr.push({ at: f.hi, label: 'hi' });
+    if (f.mid !== null) ptr.push({ at: f.mid, label: 'mid', side: 'bottom', tone: 'default' });
+    const vt = vals.map((_, i) => (i === 5 ? 'ghost' : i === f.pick ? 'strong' : f.warn && i === 4 ? 'warn' : 'muted'));
+    return (
+      <Step caption={f.caption}>
+        <ArrayCells label="时刻" values={times} tones={tones} pointers={ptr} cell={60} />
+        <ArrayCells label="取值" values={vals} tones={vt} pointers={f.warn ? [{ at: 4, label: 'values[-1]？', tone: 'warn' }] : []} cell={60} index={false} />
+      </Step>
+    );
+  })}
+</Stepper>
+
+循环里一直保持两条性质：`lo` 左边的写入时刻都 ≤ t，`hi` 及其右边的写入时刻都 > t。每一步按 `mid` 的时刻挪动 `lo` 或 `hi`，范围缩小一半，两条性质仍然成立。`lo` 和 `hi` 相遇时，左边全已生效，右边全没发生，这个位置就是分界线。
+
+`times[mid] <= t` 里的等号决定时刻恰好等于 t 的写入归哪边。这条写入在 t 时刻已经生效，属于左边，`lo` 要越过它。写成 `<` 就成了 `bisect_left`，查 12 会停在下标 3，返回前一条的“简洁”。
+
+## 代码
+
+<Solution slug="time-travel-kv" />
+
+Python 直接用标准库的 `bisect_right`。TypeScript 没有现成的二分，`upperBound` 是手写的，循环条件和比较方向与上面的动画一一对应。
+
+位置为 0 的情况两种语言都要单独处理，但出错的样子不同：Python 的 `values[-1]` 会静静地返回最新的值；JavaScript 的 `values[-1]` 是 `undefined`，碰巧“像是”对的，换成别的写法（例如 `values.at(-1)`）又会返回最新值。显式判断 `pos > 0` 最稳。另外值可以是空字符串，所以不要写 `values[pos - 1] || null`。
+
+## 复杂度
+
+m 是某个键的写入次数，W 是所有键的写入总数。
+
+- **时间**：`set` 是追加，O(1)（Python 列表和 JS 数组的追加是摊还 O(1)）；`get` 一次二分，O(log m)。
+- **空间 O(W)**：每次写入存一个时刻和一个值。
+
+## 自测：查询时刻早于第一次写入
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+座位在时刻 3 设为“靠窗”、时刻 10 设为“过道”，查 `get(座位, 2)`，正确答案是 `None`。如果你得到“过道”，是二分结果为 0 时没有提前返回，`values[-1]` 取到了最后一个元素。
+
+同一组数据查 `get(座位, 10)`，正确答案是“过道”。如果你得到“靠窗”，是二分时把“等于”归到了右边，用的是 `bisect_left` 或 `<`。
+</Aside>
+
+本页代码还测了几个键交错写入、负数时刻、空字符串作为值，以及 300 次随机操作（和逐条扫描的写法对拍）。
+
+## 延伸：写入时刻可能乱序呢？
+
+假设日志是从几个地方汇总来的，同一个键可能先收到时刻 10 的“过道”，再收到时刻 3 的“靠窗”。规定同一时刻重复写入时，后到的覆盖先到的。
+
+只要 `times` 保持有序，查询就不用改。要改的是 `set`：先用 `bisect_left` 找到第一个 ≥ t 的位置。那里的时刻正好等于 t 就覆盖值，否则把 t 和值插到这个位置。
+
+上面的例子里，先写入 10，`times = [10]`；再写入 3，`bisect_left` 返回 0，插到最前面，`times = [3, 10]`。之后查 2、3、9、10，结果仍是 `None`、靠窗、靠窗、过道。
+
+<Solution slug="time-travel-kv" file="followup" />
+
+代价在插入：Python 列表的 `insert` 和 JS 数组的 `splice` 都要把后面的元素整体后移，一次写入最坏 O(m)。如果所有写入都在查询之前完成，更省事的做法是先全部追加，第一次查询前排一次序，总共 O(m log m)。写入和查询交替很频繁时，就需要平衡二叉搜索树这类结构，让插入和查找都是 O(log m)。
+
+## 参考
+
+- [力扣 981 · 基于时间的键值存储](https://leetcode.cn/problems/time-based-key-value-store/)
+- [Python 文档 · `bisect`](https://docs.python.org/3/library/bisect.html)
+- 同一组里的缓存题：<ProblemLink slug="lru-cache" />

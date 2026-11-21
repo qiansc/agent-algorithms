@@ -1,0 +1,14 @@
+---
+title: 三天练完 Agent 算法
+description: 面向 Agent 开发的算法手写练习：一个具体问题，配一份完整解法、图解和 Python / TypeScript 代码。
+tableOfContents: false
+sidebar:
+  label: 三天练习安排
+---
+
+import { problems, designs, threeDayPlan } from '~/data/problems';
+import PlanDay from '~/components/PlanDay.astro';
+
+{problems.length} 道题和 {designs.length} 篇设计练习都在左侧。按下面的顺序，三天练完最常用的部分；每题先自己限时写一遍，再看讲解。
+
+{threeDayPlan.map((day, i) => <PlanDay day={day} index={i + 1} />)}

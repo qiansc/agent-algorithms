@@ -1,0 +1,49 @@
+---
+// 竖条图：概率、分数、得分对比。值标在条顶，标签在底部。
+import { textWidth, toneClass, type Tone } from './shared';
+
+interface Item {
+  label: string | number;
+  value: number;
+  tone?: Tone;
+  text?: string;
+}
+interface Props {
+  items: Item[];
+  max?: number;
+  min?: number;
+  digits?: number;
+  barHeight?: number;
+  ariaLabel?: string;
+}
+
+const { items, digits = 2, barHeight = 140, ariaLabel } = Astro.props;
+const max = Astro.props.max ?? Math.max(...items.map((i) => i.value), 0);
+const min = Astro.props.min ?? Math.min(0, ...items.map((i) => i.value));
+const span = max - min || 1;
+const bw = Math.max(52, Math.ceil(Math.max(...items.map((i) => textWidth(i.label, 13))) + 16));
+const top = 22;
+const zeroY = top + (max / span) * barHeight;
+const width = items.length * bw + 8;
+const labelY = top + barHeight + (min < 0 ? 34 : 18);
+const height = labelY + 10;
+const fmt = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(digits));
+---
+
+<svg class="viz" viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label={ariaLabel ?? '条形图'}>
+  <line class="viz-axis" x1="4" x2={width - 4} y1={zeroY} y2={zeroY} />
+  {items.map((it, i) => {
+    const h = (Math.abs(it.value) / span) * barHeight;
+    const y = it.value >= 0 ? zeroY - h : zeroY;
+    const x = 4 + i * bw + 8;
+    return (
+      <g class={`viz-bar ${toneClass(it.tone)}`}>
+        <rect x={x} y={y} width={bw - 16} height={Math.max(h, 0.5)} rx="3" />
+        <text class="viz-bar-value" x={x + (bw - 16) / 2} y={it.value >= 0 ? y - 7 : y + h + 13} text-anchor="middle">
+          {it.text ?? fmt(it.value)}
+        </text>
+        <text class="viz-index" x={x + (bw - 16) / 2} y={labelY} text-anchor="middle">{it.label}</text>
+      </g>
+    );
+  })}
+</svg>

@@ -1,0 +1,169 @@
+---
+title: 只计算助手 token 的交叉熵
+description: 把每行 logits 对齐到下一个位置的标签，跳过 −100，用 log-sum-exp 稳定地算平均负对数概率。
+sidebar:
+  label: 41. 只算助手 token 的损失
+  order: 41
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure } from '~/components/viz';
+import Alignment from '~/components/figures/assistant-only-loss/Alignment.astro';
+
+<ProblemMeta slug="assistant-only-loss" />
+
+## 题目
+
+写 `assistant_loss(logits, labels)`，只在助手 token 上算交叉熵：返回正确 token 的平均负对数概率（自然对数）。
+
+- `logits` 有 T 行。`logits[t]` 是模型读完位置 0 到 t 后，对**下一个** token 给出的 V 个原始分数，V 是词表大小。
+- `labels[j]` 是位置 j 的真实 token 编号。用户输入、工具返回和填充位置的标签是 −100，不算损失。
+- 有效位置：前面有一行能预测它，且标签不是 −100。没有有效位置时返回 `None`（TypeScript 返回 `null`）。
+- 分数绝对值不超过 10000。计算时不能溢出，也不能出现 `log(0)`。
+- `logits` 和 `labels` 长度不同，或参与计算的标签既不是 −100 也不在 `[0, V)` 里，抛 `ValueError`（TypeScript 抛 `Error`）。
+
+## 样例
+
+| `logits` | `labels` | 返回 |
+|---|---|---|
+| `[[0,0], [0,ln 3], [ln 3,0], [0,0]]` | `[-100, -100, 1, 0]` | `0.287682`（即 −ln 0.75） |
+| `[[0,-2000], [0,0]]` | `[-100, 1]` | `2000.0` |
+| `[[0,0], [0,0]]` | `[-100, -100]` | `None` |
+| `[[1,2,3]]` | `[2]` | `None` |
+
+- 样例 1：如果没错开一位，把 `logits[t]` 和 `labels[t]` 直接配对，会得到 1.0397。
+- 样例 2：正确类别的概率约是 e⁻²⁰⁰⁰，先算概率再取对数，这个概率在浮点数里会变成 0。
+- 样例 4：只有一个 token，没有上一行能预测它，所以没有有效位置。
+
+## 思路
+
+第 t 行分数配第 t + 1 个标签，跳过 −100。每个有效位置用 log-sum-exp 算 −log p，再除以有效位置数。下面用样例依次走这三步。
+
+### 先画箭头：哪一行预测哪个标签
+
+语言模型的任务是“读到这里，猜下一个”。所以第 t 行分数要和第 t + 1 个标签配对，而不是第 t 个。
+
+<Figure caption="样例 1：`logits[t]` 指向 `labels[t + 1]`。只有两支深色箭头参与计算。">
+  <Alignment
+    roles={{ label: '角色', values: ['用户', '用户', '助手', '助手'], tones: { 0: 'muted', 1: 'muted' } }}
+    top={{ label: 'labels[t]', values: ['−100', '−100', '1', '0'], tones: { 0: 'muted', 1: 'muted', 2: 'accent', 3: 'accent' } }}
+    bottom={{ label: 'logits[t]', values: ['[0, 0]', '[0, ln3]', '[ln3, 0]', '[0, 0]'], tones: { 1: 'soft', 2: 'soft', 3: 'ghost' } }}
+    arrows={[
+      { from: 0, to: 1, tone: 'default' },
+      { from: 1, to: 2, tone: 'accent' },
+      { from: 2, to: 3, tone: 'accent' },
+    ]}
+  />
+</Figure>
+
+沿着箭头数一遍：
+
+- `logits[0]` → `labels[1] = −100`：用户的 token，跳过。
+- `logits[1] = [0, ln 3]` → `labels[2] = 1`。取指数得 e⁰ = 1 和 e^(ln 3) = 3，正确类别 1 的概率是 3 / (1 + 3) = 3/4。
+- `logits[2] = [ln 3, 0]` → `labels[3] = 0`。正确类别 0 的概率同样是 3/4。
+- `logits[3]`：它预测的是第 4 个 token，序列里没有，用不上。
+- `labels[0]`：没有第 −1 行来预测它，也用不上。
+
+两个有效位置的损失都是 −ln(3/4) ≈ 0.287682，平均还是 0.287682。
+
+写成代码：下标 j 从 1 走到 T − 1，取标签 `labels[j]` 和分数 `logits[j - 1]`。
+
+如果不错开，`logits[2] = [ln 3, 0]` 会被拿去预测 `labels[2] = 1`，概率 1/4，损失 ln 4 ≈ 1.3863；`logits[3] = [0, 0]` 预测 `labels[3] = 0`，损失 ln 2 ≈ 0.6931。平均 1.0397。这个数看着也很正常，不对照样例很难发现。
+
+<Figure caption="错误的对齐：`logits[t]` 直接配 `labels[t]`。`logits[2]` 是读完第 2 个 token 才给出的，拿它预测第 2 个 token，等于看着答案答题。">
+  <Alignment
+    top={{ label: 'labels[t]', values: ['−100', '−100', '1', '0'], tones: { 0: 'muted', 1: 'muted', 2: 'warn', 3: 'warn' } }}
+    bottom={{ label: 'logits[t]', values: ['[0, 0]', '[0, ln3]', '[ln3, 0]', '[0, 0]'], tones: { 2: 'warn', 3: 'warn' } }}
+    arrows={[
+      { from: 2, to: 2, tone: 'warn' },
+      { from: 3, to: 3, tone: 'warn' },
+    ]}
+  />
+</Figure>
+
+### 再算每个位置的损失：别先算概率
+
+一个位置的损失是 −log p，p 是 softmax 后正确类别的概率。照定义写，要先对每个分数求 exp，再归一化。
+
+样例 2 的 `logits[0] = [0, −2000]`，正确类别是 1。e⁻²⁰⁰⁰ 远小于双精度浮点数能表示的最小正数（约 5 × 10⁻³²⁴），会直接变成 0。p = 0，log 0 在 Python 里报错，在 JavaScript 里是 −∞，损失变成 ∞。
+
+换个写法。设这一行的最大分数是 m，正确类别的分数是 s，则
+
+```text
+−log p = −s + log Σ exp(分数)
+       = (m − s) + log Σ exp(分数 − m)
+```
+
+第一项是正确类别比最高分落后多少。第二项里每个指数都 ≤ 0，最大的一项正好是 e⁰ = 1，所以求和结果在 1 到 V 之间，不会上溢，也不会变成 0。稳定 softmax 用的也是这个技巧。
+
+代入样例 2：m = 0，s = −2000，第一项是 2000；第二项是 log(e⁰ + e⁻²⁰⁰⁰) = log(1 + 几乎为 0) ≈ 0。损失 2000。
+
+代入样例 1 的 `logits[1] = [0, ln 3]`：m = ln 3，s = ln 3，第一项是 0；第二项是 log(e^(0 − ln 3) + e⁰) = log(1/3 + 1) = log(4/3) ≈ 0.287682，和上面直接算的一致。
+
+### 最后求平均：分母是有效位置数
+
+把有效位置的损失加起来，除以有效位置的个数。样例 1 是 (0.287682 + 0.287682) / 2，分母不是 T = 4，也不是 T − 1 = 3。
+
+没有有效位置时返回 `None`，不要返回 0。损失 0 表示“每个位置都以概率 1 预测对了”，和“没有可算的东西”不是一回事。
+
+### 标成 −100 的内容，模型还看得见
+
+−100 只表示“这个位置不算损失”，token 本身仍在输入里。比如工具返回一个价格，标签是 −100，模型不会被训练去猜这个价格。后面助手复述价格时，那几个 token 有标签，模型可以从上下文里抄到正确的数字。
+
+## 代码
+
+<Solution slug="assistant-only-loss" />
+
+两个版本有几处写法不同：
+
+- 求最大值：TypeScript 没有用 `Math.max(...scores)`。展开参数时每个元素都占一个调用参数，在 Node 24 里，长度 128256 的数组（常见的词表大小）会直接抛 `RangeError: Maximum call stack size exceeded`。这里用 `reduce` 逐个比较。测试里有一条就是 V = 128256，结果应为 ln 128256 ≈ 11.7618。
+- 越界标签：Python 的列表允许负下标，`scores[-1]` 会悄悄取到最后一个分数，所以要自己检查 `0 <= target < V`。TypeScript 越界会拿到 `undefined`，后面算出 `NaN`，同样要先拦下来。
+- 返回空值：Python 返回 `None`，TypeScript 返回 `null`。
+
+PyTorch 的 `CrossEntropyLoss` 默认 `ignore_index = -100`，所以标签里习惯用 −100 表示“不算”。不少训练框架会在模型内部把标签错开一位，如果你在外面已经错开了，再交给这样的框架，就会错开两位。
+
+## 复杂度
+
+T 是序列长度，V 是词表大小，M 是有效位置的个数（M ≤ T − 1）。
+
+- **时间 O(T + M·V)**：每个位置看一次标签；只有 M 个有效位置需要扫一整行 V 个分数，求最大值和求和各一遍。
+- **额外空间 O(1)**：只用了 `total`、`count` 和几个标量，不复制分数。
+
+## 自测：对齐、溢出和分母
+
+<Aside type="caution" title="三个错误结果，各对应一个错误">
+样例 1 的正确答案是 0.287682。如果你得到 1.0397，`logits[t]` 和 `labels[t]` 没有错开一位。如果你得到 0.1438，除的是序列长度 4；得到 0.1918，除的是 T − 1 = 3。分母应该是有效位置数 2。
+
+样例 2 的正确答案是 2000。如果你得到 `inf`、`NaN`，或者 Python 报 `math domain error`，你是先算出概率再取对数的。
+</Aside>
+
+本页代码还测过空序列、只有一个 token、分数 ±1000 混在一起的一行、8 个位置 × 5 类的随机分数，以及长度不一致、标签越界、把 −1 当成忽略标记这几种非法输入。
+
+## 延伸：一批对话一起算，怎么平均？
+
+改一个条件：一次给一批对话，每条对话的有效位置数不同，要返回整批的平均损失。
+
+取两条：A 是样例 1，有 2 个有效位置，损失都是 0.287682；B 是 `logits = [[0,0,0,0], [0,0,0,0]]`、`labels = [-100, 2]`，只有 1 个有效位置，四类分数相同，损失是 ln 4 ≈ 1.386294。
+
+有两种平均法，结果不一样：
+
+- 按 token 平均：三个位置一视同仁，(0.287682 × 2 + 1.386294) / 3 ≈ 0.653886。
+- 按条平均：先各自平均，再对两条平均，(0.287682 + 1.386294) / 2 ≈ 0.836988。
+
+按条平均时，B 唯一的那个 token 权重是 A 里每个 token 的 2 倍：回答越短，每个 token 越“值钱”。要和“把整批拼成一条长序列再算”的结果一致，应该按 token 平均。
+
+原来的函数还能用，但不能把各条的返回值再平均一次。做法是分别累加每条的损失总和与有效位置数，最后除一次。函数返回的是平均值，乘回这一条的有效位置数就是总和。没有有效位置的那一条直接跳过。
+
+<Solution slug="assistant-only-loss" file="followup" />
+
+梯度累积也有这个问题。把一个大 batch 拆成几个小 batch 依次算，如果每个小 batch 先求平均、再对这些平均值求平均，结果和一次算整批不同。修法一样：先累加总和与个数，最后统一除。
+
+## 参考
+
+- [PyTorch `torch.nn.CrossEntropyLoss` 文档](https://docs.pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html)，`ignore_index` 默认是 −100
+- [《动手学深度学习》3.4 节 softmax 回归](https://zh.d2l.ai/chapter_linear-networks/softmax-regression.html)，交叉熵的推导
+- [Hugging Face TRL · SFT Trainer 文档](https://huggingface.co/docs/trl/sft_trainer)，只对助手回复计算损失的配置
+- 同一个 log-sum-exp 技巧：<ProblemLink slug="masked-softmax" />；对齐方式相同的注意力掩码：<ProblemLink slug="causal-attention" />

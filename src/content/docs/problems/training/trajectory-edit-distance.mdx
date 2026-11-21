@@ -1,0 +1,211 @@
+---
+title: 两条工具轨迹，最少改几步才能一样
+description: 把工具调用序列看成列表，用插入、删除、替换三种操作把一条变成另一条，动态规划求最少步数并输出修改清单。
+sidebar:
+  label: 48. 轨迹编辑距离
+  order: 48
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Grid, Stepper, Step } from '~/components/viz';
+
+export const A = ['查票', '查票', '付款'];
+export const B = ['查票', '确认', '付款'];
+export const D = (() => {
+  const d = Array.from({ length: A.length + 1 }, () => Array(B.length + 1).fill(0));
+  for (let i = 0; i <= A.length; i++) d[i][0] = i;
+  for (let j = 0; j <= B.length; j++) d[0][j] = j;
+  for (let i = 1; i <= A.length; i++)
+    for (let j = 1; j <= B.length; j++)
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (A[i - 1] === B[j - 1] ? 0 : 1));
+  return d;
+})();
+export const rowHeads = ['空', ...A];
+export const colHeads = ['空', ...B];
+export const captions = [
+  '先填第 0 行和第 0 列：插入 j 次、删除 i 次，都是 0、1、2、3。',
+  'dp[1][1]：`查票` 和 `查票` 相同，左上 0 + 0 = 0，原样保留。',
+  'dp[1][2]：`查票` 和 `确认` 不同。左方 0 + 1 = 1 最小，即再插入一个 `确认`。',
+  'dp[1][3]：`查票` 和 `付款` 不同。左方 1 + 1 = 2 最小，即再插入 `付款`。',
+  'dp[2][1]：`查票` 和 `查票` 相同。左上 1 + 0 = 1，上方 0 + 1 = 1 并列：删掉哪个 `查票` 都行。',
+  'dp[2][2]：`查票` 和 `确认` 不同。左上 0 + 1 = 1 最小，即把第二个 `查票` 替换成 `确认`。',
+  'dp[2][3]：`查票` 和 `付款` 不同。左上和左方都是 1 + 1 = 2，结果是 2。',
+  'dp[3][1]：`付款` 和 `查票` 不同。上方 1 + 1 = 2 最小，即删掉 `付款`。',
+  'dp[3][2]：`付款` 和 `确认` 不同。左上和上方都是 1 + 1 = 2，结果是 2。',
+  'dp[3][3]：`付款` 和 `付款` 相同，左上 1 + 0 = 1。右下角的 1 就是答案。',
+];
+export const order = [null, ...A.flatMap((_, i) => B.map((_, j) => [i + 1, j + 1]))];
+export const frames = order.map((cur, k) => {
+  const rows = D.map((r, i) => r.map((v, j) => {
+    if (i === 0 || j === 0) return v;
+    if (!cur) return null;
+    const filled = i < cur[0] || (i === cur[0] && j <= cur[1]);
+    return filled ? v : null;
+  }));
+  const tones = {};
+  rows.forEach((r, i) => r.forEach((v, j) => { if (v === null) tones[`${i},${j}`] = 'ghost'; }));
+  let arrows = [];
+  let cands = [['—', '—', '—']];
+  let candTones = {};
+  if (cur) {
+    const [i, j] = cur;
+    const same = A[i - 1] === B[j - 1];
+    const list = [
+      { name: same ? '左上 保留' : '左上 替换', from: [i - 1, j - 1], add: same ? 0 : 1 },
+      { name: '上方 删除', from: [i - 1, j], add: 1 },
+      { name: '左方 插入', from: [i, j - 1], add: 1 },
+    ];
+    const best = D[i][j];
+    list.forEach((c) => {
+      const base = D[c.from[0]][c.from[1]];
+      c.value = base + c.add;
+      c.expr = `${base} + ${c.add}`;
+      tones[`${c.from[0]},${c.from[1]}`] = c.value === best ? 'accent' : 'soft';
+    });
+    tones[`${i},${j}`] = 'strong';
+    arrows = list.map((c) => ({ from: c.from, to: [i, j], tone: c.value === best ? 'accent' : 'default' }));
+    cands = list.map((c) => [c.name, c.expr, c.value]);
+    list.forEach((c, r) => { if (c.value === best) { candTones[`${r},0`] = 'accent'; candTones[`${r},1`] = 'accent'; candTones[`${r},2`] = 'accent'; } });
+  }
+  return { rows, tones, arrows, cands, candTones, caption: captions[k] };
+});
+export const path = [[0, 0], [1, 1], [2, 2], [3, 3]];
+
+<ProblemMeta slug="trajectory-edit-distance" />
+
+## 题目
+
+写 `trace_distance(a, b)`，返回把工具轨迹 `a` 变成 `b` 的最少步数。
+
+- 轨迹是按时间排好的工具名列表，例如 `["查票", "查票", "付款"]`。
+- 每一步可以插入、删除或替换一个工具，各算 1 步。
+- 工具名整体比较，不拆成字符：`"search_web"` 和 `"search"` 是两个不同的工具。
+- 空轨迹合法，两条都为空时答案是 0。
+- 返回非负整数。
+
+## 样例
+
+| `a` | `b` | 输出 | 说明 |
+|---|---|---|---|
+| `[查票, 查票, 付款]` | `[查票, 确认, 付款]` | 1 | 把第二个 `查票` 替换成 `确认` |
+| `[查票, 查票, 付款]` | `[]` | 3 | 删除 3 次 |
+| `[搜索, 查票, 付款]` | `[查票, 付款, 搜索]` | 2 | 删掉开头的 `搜索`，在末尾插入 `搜索` |
+
+样例 3 检查“逐位比较”的错误。按位置对比，3 个位置都不同，会得到 3。但 `查票, 付款` 两边都有，只是挪了一格，删一次、插一次就够了。
+
+## 思路
+
+这是按工具名比较的编辑距离。用二维表 `dp[i][j]` 记“`a` 的前 i 项变成 `b` 的前 j 项”的最少步数，每格从左上、上方、左方三格取最小值。
+
+### 只看两条轨迹的最后一步
+
+设 `a` 的长度是 m，`b` 的长度是 n。先只看两边的最后一项。样例 1 里 `a` 最后是 `付款`，`b` 最后也是 `付款`。
+
+- 两者相同：原样保留，问题缩小成“`[查票, 查票]` 变成 `[查票, 确认]` 要几步”。
+- 两者不同：最后一次操作只有三种可能。
+  - 删除 `a` 的最后一项，剩下“`a` 少一项变成整个 `b`”。
+  - 在末尾插入 `b` 的最后一项，剩下“整个 `a` 变成 `b` 少一项”。
+  - 把 `a` 的最后一项替换成 `b` 的最后一项，剩下“两边各少一项”。
+
+三个子问题都更小，答案是它们的最小值加 1。
+
+### 填表
+
+上面的分析写成递推：
+
+- `dp[i][j] = min(dp[i-1][j] + 1, dp[i][j-1] + 1, dp[i-1][j-1] + 替换代价)`
+- 替换代价：`a[i-1] == b[j-1]` 时是 0（原样保留），否则是 1。
+
+`dp[i-1][j]` 是正上方，`dp[i][j-1]` 是左边，`dp[i-1][j-1]` 是左上角。每格只依赖这三格，按行从左到右填即可。答案在右下角 `dp[m][n]`。
+
+第 0 行和第 0 列先填好：从空轨迹造出 `b` 的前 j 项要插入 j 次，把 `a` 的前 i 项变成空轨迹要删除 i 次。
+
+<Stepper title="用 [查票, 查票, 付款] → [查票, 确认, 付款] 填表">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div>
+          <p class="viz-row-label">dp 表（行是 a 的前缀，列是 b 的前缀）</p>
+          <Grid rows={f.rows} rowHeaders={rowHeads} colHeaders={colHeads} corner="a \ b" tones={f.tones} arrows={f.arrows} cellWidth={58} cellHeight={48} />
+        </div>
+        <div>
+          <p class="viz-row-label">当前格的三个来源</p>
+          <Grid rows={f.cands} colHeaders={['来源', '算式', '值']} tones={f.candTones} />
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+取三者最小值不会漏掉最优解。任何最优改法处理最后一项时，一定是“保留或替换”“删除”“插入”之一。去掉这一步后，剩下的部分也必须是对应子问题的最优解，否则换掉它整体就能更短。
+
+### 只留两行
+
+填第 i 行只用到第 i − 1 行和本行左边的格子，所以只保留上一行 `previous` 和当前行 `current`。
+
+代码还把较短的轨迹换到 `b` 的位置，这样每行只有 min(m, n) + 1 格。编辑距离是对称的，`a` 变 `b` 和 `b` 变 `a` 步数相同，只是插入和删除互换。
+
+## 代码
+
+<Solution slug="trajectory-edit-distance" />
+
+两个版本结构相同。TypeScript 里 `===` 比较字符串按内容比较，和 Python 的 `!=` 一样是整体比较工具名；Python 里 `action != target` 是布尔值，可以直接当 0 或 1 相加；TypeScript 的类型检查不允许数字加布尔值，所以写成了 `action === target ? 0 : 1`。
+
+## 复杂度
+
+m、n 是两条轨迹的长度。
+
+- **时间 O(m × n)**：表里每一格做一次常数时间的比较和取最小值。准确地说要填 (m + 1)(n + 1) 格，其中第 0 行和第 0 列是直接写入的。
+- **空间 O(min(m, n))**：只保留两行，每行 min(m, n) + 1 格。
+
+## 自测：两个容易写错的输入
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`a = [搜索, 查票, 付款]`，`b = [查票, 付款, 搜索]`，正确答案是 2。如果你得到 3，多半是按位置逐个比较，没考虑插入和删除能让后面的项错位对齐。
+
+`a = [查票, 查票, 付款]`，`b = []`，正确答案是 3。如果你得到 0，是把第 0 列初始化成了全 0，忘了“变成空轨迹要删除 i 次”。
+</Aside>
+
+本页代码还对两条都为空、一条为空、两步互换顺序（`[查票, 付款]` 对 `[付款, 查票]`，答案 2），以及 30 步对 22 步的随机轨迹跑过测试。
+
+## 延伸：还要输出具体改了哪几步？
+
+只要步数时可以只留两行。要输出修改清单，就得保留整张表，从右下角往回走。
+
+在格子 `(i, j)` 上，看它来自哪个来源：
+
+- 如果等于左上角加替换代价，就是“保留”（两项相同）或“替换”，走到 `(i-1, j-1)`；
+- 否则如果等于上方加 1，就是“删除 `a[i-1]`”，走到 `(i-1, j)`；
+- 否则是“插入 `b[j-1]`”，走到 `(i, j-1)`。
+
+走到 `(0, 0)` 后，把沿途记下的操作倒过来，就是一份最短修改清单。来源并列时（例如样例 1 的第 2 行第 1 列），最短方案不止一种。这里固定按“保留或替换、删除、插入”的顺序选，结果是确定的。
+
+<Figure caption="样例 1 的回溯：三步都走左上，依次是保留 `付款`、把 `查票` 替换成 `确认`、保留 `查票`。">
+  <Grid
+    rows={D}
+    rowHeaders={rowHeads}
+    colHeaders={colHeads}
+    corner="a \ b"
+    tones={{ '0,0': 'accent', '1,1': 'accent', '2,2': 'strong', '3,3': 'accent' }}
+    arrows={[{ from: [3, 3], to: [2, 2] }, { from: [2, 2], to: [1, 1] }, { from: [1, 1], to: [0, 0] }]}
+    cellWidth={64}
+    cellHeight={50}
+  />
+</Figure>
+
+<Solution slug="trajectory-edit-distance" file="followup" />
+
+样例 1 的输出是 `[(keep, 查票, 查票), (replace, 查票, 确认), (keep, 付款, 付款)]`，非 `keep` 的项正好 1 个。样例 3 的输出是删除 `搜索`、保留 `查票`、保留 `付款`、插入 `搜索`，共 2 步。
+
+时间仍是 O(m × n)，空间变成 O((m + 1)(n + 1))，回溯本身只走 m + n 步以内。
+
+用编辑距离比较 Agent 轨迹有一个局限：两个互不依赖的查询换个顺序执行，结果完全一样，编辑距离却是 2。它只衡量“步骤像不像”，结果对不对要另外检查。
+
+## 参考
+
+- [力扣 72 · 编辑距离](https://leetcode.cn/problems/edit-distance/)
+- [Wagner & Fischer. The String-to-String Correction Problem（1974）](https://doi.org/10.1145/321796.321811)
+- 同样按前缀填二维表的题：<ProblemLink slug="longest-common-subsequence" />

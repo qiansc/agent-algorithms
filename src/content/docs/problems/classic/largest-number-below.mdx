@@ -1,0 +1,155 @@
+---
+title: 用给定数字拼出小于 n 的最大数
+description: 只用给定的数字拼出严格小于 n 的最大正整数：从右往左找第一个能变小的位置，前面照抄、后面全放最大数字。
+sidebar:
+  label: 57. 拼出小于 n 的最大数
+  order: 57
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Stepper, Step } from '~/components/viz';
+
+export const nDigits = [2, 1, 1, 1];
+export const frames = [
+  {
+    nTones: ['soft', 'soft', 'soft', 'soft'], ans: [2, 1, 1, 1], ansTones: ['warn', 'warn', 'warn', 'warn'], at: 3, first: true,
+    caption: '`n` 的四位 2、1、1、1 都在 `{1, 2}` 里，`same = 4`。全照抄得到 2111，等于 `n`，不算小于。所以 `i` 最多取 `min(4, 3) = 3`。',
+  },
+  {
+    nTones: ['soft', 'soft', 'soft', 'strong'], ans: [2, 1, 1, '?'], ansTones: ['soft', 'soft', 'soft', 'ghost'], at: 3,
+    caption: '试 `i = 3`：前三位照抄 211，第 3 位要放比 1 小的数字。1 已经是最小的可用数字，不行。',
+  },
+  {
+    nTones: ['soft', 'soft', 'strong', 'muted'], ans: [2, 1, '?', null], ansTones: ['soft', 'soft', 'ghost', 'ghost'], at: 2,
+    caption: '退到 `i = 2`：前两位照抄 21，第 2 位也是 1，同样不行。',
+  },
+  {
+    nTones: ['soft', 'strong', 'muted', 'muted'], ans: [2, '?', null, null], ansTones: ['soft', 'ghost', 'ghost', 'ghost'], at: 1,
+    caption: '退到 `i = 1`：第 1 位还是 1，不行。',
+  },
+  {
+    nTones: ['strong', 'muted', 'muted', 'muted'], ans: [1, null, null, null], ansTones: ['strong', 'ghost', 'ghost', 'ghost'], at: 0,
+    caption: '退到 `i = 0`：第 0 位是 2，比 2 小的可用数字有 1，放 1。答案到这一位已经比 `n` 小。',
+  },
+  {
+    nTones: ['strong', 'muted', 'muted', 'muted'], ans: [1, 2, 2, 2], ansTones: ['strong', 'accent', 'accent', 'accent'], at: 0,
+    caption: '后面三位放什么都小于 `n`，全放最大的可用数字 2。答案是 1222。',
+  },
+];
+
+<ProblemMeta slug="largest-number-below" />
+
+## 题目
+
+给一个正整数 `n` 和一组数字 `digits`，只用这些数字拼出严格小于 `n` 的最大正整数。
+
+- `digits` 里每个数都是 1 到 9 的整数，可以重复使用，列表本身也可能有重复。
+- 拼不出时返回 −1。
+- `digits` 为空、含 0 或含 1 到 9 以外的值，或 `n` 不是正整数时，抛出错误（Python 抛 `ValueError`，TypeScript 抛 `RangeError`）。
+
+## 样例
+
+| n | digits | 输出 | 说明 |
+|---|---|---|---|
+| `2533` | `[1, 2, 5, 9]` | `2529` | 第 2 位的 3 不可用，在那里变小 |
+| `2111` | `[1, 2]` | `1222` | 要一路退回第 0 位 |
+| `1000` | `[2, 3]` | `333` | 四位数拼不出，只能三位 |
+| `1` | `[1]` | `-1` | 没有更小的正整数可拼 |
+
+`2111` 用来抓只会往前贪心的写法：每一位都尽量和 `n` 相同，最后得到 2111 本身，已经没有位置可以变小，必须往回退三位。
+
+## 思路
+
+找答案第一次比 `n` 小的位置 `i`：`i` 之前照抄 `n`，第 `i` 位放一个更小的可用数字，后面全放最大的可用数字。`i` 从右往左试，第一个可行的就是答案。同样位数拼不出时，少一位，每位放最大数字。
+
+和 `n` 一样长的候选一定比更短的大，所以先在同样位数里找。
+
+同样位数的候选 `x < n`，从左往右比，总有第一个和 `n` 不同的位置 `i`。`i` 之前 `x` 和 `n` 相同，`i` 上 `x` 更小，`i` 之后放什么，`x` 都已经比 `n` 小。
+
+固定 `i` 后，这样让 `x` 最大：
+
+- 前 `i` 位照抄 `n`，这些位上的数字都必须在 `digits` 里。
+- 第 `i` 位放比 `n[i]` 小的可用数字里最大的一个。
+- 后面每一位放最大的可用数字。
+
+`i` 越靠右，和 `n` 相同的前缀越长，数就越大。比如 `n = 2533` 时，`i = 2` 得到 2529，`i = 0` 得到 1999。所以从右往左试。
+
+从哪里开始试？从左往右数，`n` 有连续 `same` 位能照抄，`i` 最多是 `same`。再往右，要照抄的前缀就包含了不可用的第 `same` 位。`i` 也不能超过最后一位 `L − 1`（L 是 `n` 的位数），所以从 `min(same, L − 1)` 开始往左试。
+
+`2533` 用 `[1, 2, 5, 9]`：2、5 能照抄，3 不可用，`same = 2`。试 `i = 2`，比 3 小的可用数字是 2，最后一位放 9，得到 2529。
+
+<Figure caption="`n = 2533`，`digits = [1, 2, 5, 9]`。前两位照抄，第 2 位从 3 降到 2，最后一位放最大的 9。">
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">n</p>
+      <ArrayCells values={[2, 5, 3, 3]} tones={['soft', 'soft', 'strong', 'default']} ranges={[{ from: 0, to: 1, label: 'same = 2', side: 'top', tone: 'accent' }]} pointers={[{ at: 2, label: 'i', side: 'bottom' }]} cell={48} />
+    </div>
+    <div style="margin-top:0">
+      <p class="viz-row-label">答案 2529</p>
+      <ArrayCells values={[2, 5, 2, 9]} tones={['soft', 'soft', 'strong', 'accent']} ranges={[{ from: 0, to: 1, label: '照抄', side: 'top', tone: 'accent' }]} pointers={[{ at: 2, label: '变小', side: 'bottom' }]} cell={48} />
+    </div>
+  </div>
+</Figure>
+
+`2111` 用 `[1, 2]` 时，`i` 要从右往左一路退到 0：
+
+<Stepper title="n = 2111，digits = [1, 2]：从右往左找能变小的位置">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <p class="viz-row-label">n</p>
+      <ArrayCells
+        values={nDigits}
+        tones={f.nTones}
+        cell={48}
+        ranges={[{ from: 0, to: 3, label: 'same = 4', side: 'top', tone: 'accent' }]}
+        pointers={[{ at: f.at, label: f.first ? 'i ≤ 3' : 'i', side: 'bottom' }]}
+      />
+      <p class="viz-row-label">{f.first ? '全部照抄（等于 n，不合格）' : '答案'}</p>
+      <ArrayCells values={f.ans} tones={f.ansTones} cell={48} index={false} />
+    </Step>
+  ))}
+</Stepper>
+
+`i = 0` 也失败，说明同样位数拼不出。`n = 1000`、`digits = [2, 3]`：第 0 位的 1 不可用，`same = 0`，只能试 `i = 0`，但没有比 1 小的可用数字。于是退到三位数，每位放最大的 3，得到 333。`n` 只有一位时，少一位就没有数了，返回 −1，`n = 1` 就是这样。
+
+## 代码
+
+<Solution slug="largest-number-below" />
+
+两个版本都把 `n` 转成字符串按位处理，拼好答案再转回数字。Python 的整数没有上限。TypeScript 的 `number` 只能精确表示到 `Number.MAX_SAFE_INTEGER`（9007199254740991，16 位），所以入口用 `Number.isSafeInteger` 检查 `n`；答案比 `n` 小，不会越界。更大的 `n` 需要改用 `bigint` 或者直接传字符串。
+
+`digits` 先去重再排序。TypeScript 的 `sort` 不传参数时按字符串比较，这里传了 `(x, y) => x - y` 按数值排。
+
+## 复杂度
+
+L 是 `n` 的十进制位数，k 是去重后可用数字的个数（k ≤ 9）。
+
+- **时间 O(L·k)**：算 `same` 时每一位查一次可用数字，最多 L 次；从右往左试 `i`，每次在 k 个数字里找更小的，最多 L 次；最后拼一个 L 位的字符串。
+- **空间 O(L)**：字符串 `s` 和拼出来的答案。
+
+## 自测：退位和“严格小于”
+
+<Aside type="caution" title="这两个输入最容易出错">
+`n = 4321`，`digits = [1, 2, 3, 4]`，正确答案是 4314。四位都能照抄，`i = 3` 时最后一位是 1，没有更小的；退到 `i = 2`，2 换成 1，后面放 4。如果你得到 4321，说明没有处理“严格小于”；如果得到 3444，说明退得太多，直接跳到了第 0 位。
+
+`n = 1234`，`digits = [1, 2, 3, 4]`，正确答案是 1233，不是 1234。`n` 本身能拼出来，但题目要的是严格小于。
+</Aside>
+
+本页的测试另外写了一个暴力版：从 `n − 1` 往下逐个检查每个数是不是只由可用数字组成。在 2000 组随机输入（`n` 取 1 到 5000，可用数字随机挑 1 到 4 个）上，两种语言的解法都和暴力版结果一致。
+
+## 延伸：改成“小于等于 n”呢？
+
+只多一种情况：`n` 的每一位都在 `digits` 里时（代码里就是 `same == L`），`n` 自己就是答案。其他情况下答案和原题相同，因为 `n` 拼不出来，“小于等于”和“小于”是一回事。
+
+所以 `n = 2111`、`digits = [1, 2]` 的答案变成 2111；`n = 2533`、`digits = [1, 2, 5, 9]` 仍是 2529；`n = 1`、`digits = [1]` 变成 1。
+
+<Solution slug="largest-number-below" file="followup" />
+
+对拍同样适用：“小于等于 `n` 的最大数”就是“小于 `n + 1` 的最大数”，测试里直接拿 `brute_below(n + 1, digits)` 当标准答案。
+
+## 参考
+
+- [力扣 902 · 最大为 N 的数字组合](https://leetcode.cn/problems/numbers-at-most-n-given-digit-set/)（同一组可用数字，统计不超过 n 的数有多少个，按位分析的思路相同）
+- 另一道“从右往左找第一个能改的位置”的题：[力扣 31 · 下一个排列](https://leetcode.cn/problems/next-permutation/)

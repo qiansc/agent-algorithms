@@ -1,0 +1,152 @@
+---
+title: 重复惩罚、温度、Top-k 依次作用后的概率
+description: 对 logits 依次做重复惩罚、温度缩放和保留并列的 Top-k 截断，再用稳定 softmax 得到下一个 token 的概率。
+sidebar:
+  label: 33. 重复惩罚与 Top-k
+  order: 33
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Bars, Stepper, Step } from '~/components/viz';
+
+export const fmt = (v) => (Number.isInteger(v) ? v.toFixed(1) : String(v));
+export const frames = [
+  {
+    values: [2.0, -1.0, 0.5, 1.0, 1.0], tones: ['accent', 'accent', 'default', 'default', 'default'], kind: 'logit',
+    caption: '原始分数 `[2.0, -1.0, 0.5, 1.0, 1.0]`。`generated` 去重后是 {0, 1}，这两个编号受罚（高亮）。',
+  },
+  {
+    values: [1.0, -1.0, 0.5, 1.0, 1.0], tones: ['strong', 'accent', 'default', 'default', 'default'], kind: 'logit',
+    caption: '编号 0 的 2.0 是正数，除以 penalty = 2，变成 1.0。',
+  },
+  {
+    values: [1.0, -2.0, 0.5, 1.0, 1.0], tones: ['accent', 'strong', 'default', 'default', 'default'], kind: 'logit',
+    caption: '编号 1 的 −1.0 是负数，乘以 2，变成 −2.0。它出现过两次，也只罚这一次。',
+  },
+  {
+    values: [1.0, -0.5, 0.5, 1.0, 1.0], tones: ['accent', 'warn', 'default', 'default', 'default'], kind: 'logit',
+    caption: '错误做法：负分也除以 2，−1.0 变成 −0.5，反而比原来大。',
+  },
+  {
+    values: [2.0, -4.0, 1.0, 2.0, 2.0], tones: ['default', 'default', 'default', 'default', 'default'], kind: 'logit',
+    caption: '温度 0.5：每个分数乘 2，得到 `[2.0, -4.0, 1.0, 2.0, 2.0]`。顺序不变，差距翻倍。',
+  },
+  {
+    values: [2.0, -4.0, 1.0, 2.0, 2.0], tones: ['accent', 'muted', 'muted', 'accent', 'accent'], kind: 'logit',
+    caption: 'Top-2：第 2 大的值是 2.0。去掉小于 2.0 的编号 1、2，三个 2.0 全留。',
+  },
+  {
+    values: [1 / 3, 0, 0, 1 / 3, 1 / 3], tones: ['strong', 'muted', 'muted', 'strong', 'strong'], kind: 'prob',
+    caption: '对保留的三个 2.0 做 softmax，各得 1/3。结果是 `[1/3, 0, 0, 1/3, 1/3]`。',
+  },
+];
+
+<ProblemMeta slug="sampling-penalties" />
+
+## 题目
+
+实现 `next_token_probs(logits, generated, penalty, temperature, k)`：把词表里每个 token 的原始分数（logit）按下面四步依次处理，返回每个编号的概率。
+
+1. 重复惩罚：`generated` 是已生成的 token 编号。其中每个编号只罚一次，不管出现几次。分数大于 0 时除以 `penalty`，否则乘以 `penalty`。
+2. 温度：所有分数除以 `temperature`。
+3. Top-k：找出第 k 大的分数，**严格小于**它的编号全部丢弃，相等的全部保留。k 大于词表大小时全部保留。
+4. softmax：只在保留的编号上做 softmax，丢弃的编号概率为 0。
+
+- 输入：`logits` 非空；`penalty > 0`，`temperature > 0`，`k ≥ 1`；`generated` 里的编号都在 `[0, len(logits))` 内。
+- 不满足时，Python 抛 `ValueError`，TypeScript 抛 `RangeError`。
+
+## 样例
+
+| 输入 | 输出 |
+|---|---|
+| `logits=[2.0, -1.0, 0.5, 1.0, 1.0]`, `generated=[0, 1, 1]`, `penalty=2.0`, `temperature=0.5`, `k=2` | `[1/3, 0, 0, 1/3, 1/3]` |
+| `logits=[1.0, -1.0]`, `generated=[1]`, `penalty=2.0`, `temperature=1.0`, `k=2` | `[0.952574, 0.047426]` |
+| `logits=[3.0, 2.0, 1.0]`, `generated=[0]`, `penalty=4.0`, `temperature=1.0`, `k=2` | `[0, 0.731059, 0.268941]` |
+
+样例 1 防并列时只留 k 个：到第三步有三个 2.0，k = 2 也要三个都留。样例 2 防负分也做除法：那样 −1.0 变成 −0.5，编号 1 的概率从 0.047426 升到 0.182426。样例 3 防把 Top-k 放到惩罚之前，见下文。
+
+## 思路
+
+照题目的四步顺序写，难点在三个细节：负分要乘、并列都要留、惩罚要在 Top-k 之前。下面用样例 1 走一遍。
+
+重复惩罚。`generated = [0, 1, 1]` 去重后是 {0, 1}。编号 0 的 2.0 除以 2 得 1.0；编号 1 的 −1.0 乘以 2 得 −2.0。数组变成 `[1.0, -2.0, 0.5, 1.0, 1.0]`。
+
+正负分开处理，是因为惩罚要把分数往小推。正数除以 2 会变小，负数除以 2 却会变大（−1.0 变成 −0.5），所以负数改成乘。分数是 0 时乘完还是 0。
+
+温度。全部除以 0.5，得到 `[2.0, -4.0, 1.0, 2.0, 2.0]`。温度小于 1 时差距放大，分布更尖；大于 1 时更平。顺序不变。
+
+Top-k。降序是 2.0、2.0、2.0、1.0、−4.0，第 2 个是 2.0，记作 `kth`。严格小于 `kth` 的编号 1（−4.0）和编号 2（1.0）丢掉，三个 2.0 都留下。如果写成“排序后取前 k 个下标”，三个 2.0 只能留两个，留哪两个还取决于排序实现。
+
+softmax。剩下三个分数都是 2.0，各得 1/3。
+
+<Stepper title="样例 1：logits 一步步变成概率">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <p class="viz-row-label">{f.kind === 'logit' ? '分数（logit）' : '概率'}</p>
+      <Bars
+        items={f.values.map((v, i) => ({ label: `编号 ${i}`, value: v, tone: f.tones[i], text: f.kind === 'logit' ? fmt(v) : (v === 0 ? '0' : '1/3') }))}
+        max={f.kind === 'logit' ? 2 : 0.4}
+        min={f.kind === 'logit' ? -4 : 0}
+        barHeight={f.kind === 'logit' ? 180 : 150}
+      />
+    </Step>
+  ))}
+</Stepper>
+
+### 为什么惩罚要在 Top-k 之前
+
+看样例 3：`logits = [3.0, 2.0, 1.0]`，编号 0 出现过，penalty = 4，k = 2。
+
+- 先惩罚：编号 0 变成 3.0 / 4 = 0.75，数组是 `[0.75, 2.0, 1.0]`。第 2 大是 1.0，留下编号 1、2，softmax 得 `[0, 0.731059, 0.268941]`。
+- 先 Top-k：原始分数里留下编号 0、1，然后编号 0 才被罚成 0.75，softmax 得 `[0.222700, 0.777300, 0]`。
+
+惩罚会改变排序，所以 Top-k 必须看改完的分数。温度只是全体除以同一个正数，不改变排序，和惩罚交换顺序结果也一样。
+
+softmax 沿用 <ProblemLink slug="masked-softmax" /> 的做法，先减最大分再取指数，防止 `exp` 溢出。保留集合一定含最大分，所以全体最大值就是保留部分的最大值。
+
+## 代码
+
+<Solution slug="sampling-penalties" />
+
+去重在 Python 里用 `set(generated)`，TypeScript 用 `new Set(generated)`，作用相同。求第 k 大时 TypeScript 的 `sort` 必须传 `(a, b) => b - a`，不传的话会按字符串排序，`-4` 会排在 `1` 前面之类的错误都会出现。最大值直接取排好序的第一个，没有写 `Math.max(...scores)`：词表有十几万个 token 时，把数组展开成参数可能超出引擎允许的参数个数。
+
+## 复杂度
+
+V 是词表大小（`logits` 的长度），G 是 `generated` 的长度。
+
+- **时间 O(V log V + G)**：去重扫一遍 `generated` 是 O(G)，排序找第 k 大是 O(V log V)，其余各步都是 O(V)。找第 k 大也可以换成快速选择或大小为 k 的小顶堆，降到平均 O(V) 或 O(V log k)。
+- **空间 O(V + G)**：分数副本、排序用的数组和去重后的集合。
+
+## 自测：两个容易写错的输入
+
+<Aside type="caution" title="先手算，再跑代码">
+`logits = [1.0, -1.0], generated = [1], penalty = 2.0, temperature = 1.0, k = 2`，正确答案约是 `[0.952574, 0.047426]`。如果你得到 `[0.817574, 0.182426]`，是对负分也做了除法。
+
+`logits = [0.0, 0.0, -2.0], generated = [0, 2], penalty = 3.0, temperature = 1.0, k = 1`，正确答案是 `[0.5, 0.5, 0]`。两个 0.0 受罚后仍是 0.0，并列第 1，都要留下。如果你得到 `[1, 0, 0]` 或 `[0, 1, 0]`，是 Top-k 只按下标取了一个。
+</Aside>
+
+本页代码对三个样例、上面两个输入、只有一个 token、k 大于词表、分数很大（1000 量级）、一组 10 个 token 的随机数据，以及四种非法参数都跑过测试。
+
+## 延伸：惩罚改成“按次数做减法”呢？
+
+有些推理接口提供的是另一种惩罚：`frequency_penalty` 和 `presence_penalty`。一个出现过 c 次的编号，分数减去 `c × frequency_penalty`，只要出现过就再减一次 `presence_penalty`。
+
+和本题的重复惩罚比，有两处不同：
+
+- 按次数累加：出现越多罚得越多，本题只罚一次。
+- 做减法，不分正负：减去正数总让分数变小，不用像乘除那样分正负。
+
+原解法只有第 1 步要换，温度、Top-k、softmax 都不动。用样例 1 的 logits 和历史，取两个系数都为 0.5：编号 0 出现 1 次，2.0 − 0.5 − 0.5 = 1.0；编号 1 出现 2 次，−1.0 − 2 × 0.5 − 0.5 = −2.5。结果 `[1.0, -2.5, 0.5, 1.0, 1.0]`。原来的乘除版本给编号 1 的是 −2.0，现在因为出现了两次，罚得更重。
+
+<Solution slug="sampling-penalties" file="followup" />
+
+计数时 Python 用 `Counter`，TypeScript 用 `Map` 手动累加，两边都只遍历一次 `generated`。
+
+## 参考
+
+- [Keskar et al., CTRL: A Conditional Transformer Language Model for Controllable Generation（重复惩罚的出处）](https://arxiv.org/abs/1909.05858)
+- [transformers 源码 · logits_process.py（RepetitionPenaltyLogitsProcessor、TemperatureLogitsWarper、TopKLogitsWarper）](https://github.com/huggingface/transformers/blob/main/src/transformers/generation/logits_process.py)
+- 稳定 softmax：<ProblemLink slug="masked-softmax" />；接在后面的另一种截断：<ProblemLink slug="top-p-sampling" />

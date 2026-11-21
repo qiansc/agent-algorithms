@@ -1,0 +1,1016 @@
+{
+ "python": "execute_plan",
+ "typescript": "executePlan",
+ "kind": "function",
+ "cases": [
+  {
+   "name": "正文样例：不限并发（并发 6）",
+   "args": [
+    [
+     {
+      "id": "s1",
+      "tool": "find_order",
+      "after": [],
+      "ms": 300,
+      "ok": true
+     },
+     {
+      "id": "s2",
+      "tool": "get_store",
+      "after": [
+       "s1"
+      ],
+      "ms": 200,
+      "ok": true
+     },
+     {
+      "id": "s3",
+      "tool": "get_menu",
+      "after": [
+       "s1"
+      ],
+      "ms": 400,
+      "ok": true
+     },
+     {
+      "id": "s4",
+      "tool": "estimate_eta",
+      "after": [
+       "s1"
+      ],
+      "ms": 250,
+      "ok": true
+     },
+     {
+      "id": "s5",
+      "tool": "cart_add",
+      "after": [
+       "s2",
+       "s3"
+      ],
+      "ms": 150,
+      "ok": true
+     },
+     {
+      "id": "s6",
+      "tool": "price_quote",
+      "after": [
+       "s4",
+       "s5"
+      ],
+      "ms": 200,
+      "ok": true
+     }
+    ],
+    6
+   ],
+   "expected": {
+    "status": {
+     "s1": "done",
+     "s2": "done",
+     "s3": "done",
+     "s4": "done",
+     "s5": "done",
+     "s6": "done"
+    },
+    "start": {
+     "s1": 0,
+     "s2": 300,
+     "s3": 300,
+     "s4": 300,
+     "s5": 700,
+     "s6": 850
+    },
+    "end": {
+     "s1": 300,
+     "s2": 500,
+     "s4": 550,
+     "s3": 700,
+     "s5": 850,
+     "s6": 1050
+    },
+    "total": 1050
+   }
+  },
+  {
+   "name": "正文样例：并发上限 2",
+   "args": [
+    [
+     {
+      "id": "s1",
+      "tool": "find_order",
+      "after": [],
+      "ms": 300,
+      "ok": true
+     },
+     {
+      "id": "s2",
+      "tool": "get_store",
+      "after": [
+       "s1"
+      ],
+      "ms": 200,
+      "ok": true
+     },
+     {
+      "id": "s3",
+      "tool": "get_menu",
+      "after": [
+       "s1"
+      ],
+      "ms": 400,
+      "ok": true
+     },
+     {
+      "id": "s4",
+      "tool": "estimate_eta",
+      "after": [
+       "s1"
+      ],
+      "ms": 250,
+      "ok": true
+     },
+     {
+      "id": "s5",
+      "tool": "cart_add",
+      "after": [
+       "s2",
+       "s3"
+      ],
+      "ms": 150,
+      "ok": true
+     },
+     {
+      "id": "s6",
+      "tool": "price_quote",
+      "after": [
+       "s4",
+       "s5"
+      ],
+      "ms": 200,
+      "ok": true
+     }
+    ],
+    2
+   ],
+   "expected": {
+    "status": {
+     "s1": "done",
+     "s2": "done",
+     "s3": "done",
+     "s4": "done",
+     "s5": "done",
+     "s6": "done"
+    },
+    "start": {
+     "s1": 0,
+     "s2": 300,
+     "s3": 300,
+     "s4": 500,
+     "s5": 700,
+     "s6": 850
+    },
+    "end": {
+     "s1": 300,
+     "s2": 500,
+     "s3": 700,
+     "s4": 750,
+     "s5": 850,
+     "s6": 1050
+    },
+    "total": 1050
+   }
+  },
+  {
+   "name": "串行执行（并发 1）",
+   "args": [
+    [
+     {
+      "id": "s1",
+      "tool": "find_order",
+      "after": [],
+      "ms": 300,
+      "ok": true
+     },
+     {
+      "id": "s2",
+      "tool": "get_store",
+      "after": [
+       "s1"
+      ],
+      "ms": 200,
+      "ok": true
+     },
+     {
+      "id": "s3",
+      "tool": "get_menu",
+      "after": [
+       "s1"
+      ],
+      "ms": 400,
+      "ok": true
+     },
+     {
+      "id": "s4",
+      "tool": "estimate_eta",
+      "after": [
+       "s1"
+      ],
+      "ms": 250,
+      "ok": true
+     },
+     {
+      "id": "s5",
+      "tool": "cart_add",
+      "after": [
+       "s2",
+       "s3"
+      ],
+      "ms": 150,
+      "ok": true
+     },
+     {
+      "id": "s6",
+      "tool": "price_quote",
+      "after": [
+       "s4",
+       "s5"
+      ],
+      "ms": 200,
+      "ok": true
+     }
+    ],
+    1
+   ],
+   "expected": {
+    "status": {
+     "s1": "done",
+     "s2": "done",
+     "s3": "done",
+     "s4": "done",
+     "s5": "done",
+     "s6": "done"
+    },
+    "start": {
+     "s1": 0,
+     "s2": 300,
+     "s3": 500,
+     "s4": 900,
+     "s5": 1150,
+     "s6": 1300
+    },
+    "end": {
+     "s1": 300,
+     "s2": 500,
+     "s3": 900,
+     "s4": 1150,
+     "s5": 1300,
+     "s6": 1500
+    },
+    "total": 1500
+   }
+  },
+  {
+   "name": "门店已闭店：下游跳过",
+   "args": [
+    [
+     {
+      "id": "s1",
+      "tool": "find_order",
+      "after": [],
+      "ms": 300,
+      "ok": true
+     },
+     {
+      "id": "s2",
+      "tool": "get_store",
+      "after": [
+       "s1"
+      ],
+      "ms": 200,
+      "ok": false
+     },
+     {
+      "id": "s3",
+      "tool": "get_menu",
+      "after": [
+       "s1"
+      ],
+      "ms": 400,
+      "ok": true
+     },
+     {
+      "id": "s4",
+      "tool": "estimate_eta",
+      "after": [
+       "s1"
+      ],
+      "ms": 250,
+      "ok": true
+     },
+     {
+      "id": "s5",
+      "tool": "cart_add",
+      "after": [
+       "s2",
+       "s3"
+      ],
+      "ms": 150,
+      "ok": true
+     },
+     {
+      "id": "s6",
+      "tool": "price_quote",
+      "after": [
+       "s4",
+       "s5"
+      ],
+      "ms": 200,
+      "ok": true
+     }
+    ],
+    6
+   ],
+   "expected": {
+    "status": {
+     "s1": "done",
+     "s2": "failed",
+     "s3": "done",
+     "s4": "done",
+     "s5": "skipped",
+     "s6": "skipped"
+    },
+    "start": {
+     "s1": 0,
+     "s2": 300,
+     "s3": 300,
+     "s4": 300
+    },
+    "end": {
+     "s1": 300,
+     "s2": 500,
+     "s4": 550,
+     "s3": 700
+    },
+    "total": 700
+   }
+  },
+  {
+   "name": "空计划",
+   "args": [
+    [],
+    3
+   ],
+   "expected": {
+    "status": {},
+    "start": {},
+    "end": {},
+    "total": 0
+   }
+  },
+  {
+   "name": "单步",
+   "args": [
+    [
+     {
+      "id": "a",
+      "tool": "search_store",
+      "after": [],
+      "ms": 120,
+      "ok": true
+     }
+    ],
+    1
+   ],
+   "expected": {
+    "status": {
+     "a": "done"
+    },
+    "start": {
+     "a": 0
+    },
+    "end": {
+     "a": 120
+    },
+    "total": 120
+   }
+  },
+  {
+   "name": "同时结束的两步一起收尾",
+   "args": [
+    [
+     {
+      "id": "a",
+      "tool": "x",
+      "after": [],
+      "ms": 100,
+      "ok": true
+     },
+     {
+      "id": "b",
+      "tool": "x",
+      "after": [],
+      "ms": 100,
+      "ok": true
+     },
+     {
+      "id": "c",
+      "tool": "x",
+      "after": [
+       "a",
+       "b"
+      ],
+      "ms": 50,
+      "ok": true
+     }
+    ],
+    2
+   ],
+   "expected": {
+    "status": {
+     "a": "done",
+     "b": "done",
+     "c": "done"
+    },
+    "start": {
+     "a": 0,
+     "b": 0,
+     "c": 100
+    },
+    "end": {
+     "a": 100,
+     "b": 100,
+     "c": 150
+    },
+    "total": 150
+   }
+  },
+  {
+   "name": "第一步就失败：全部跳过",
+   "args": [
+    [
+     {
+      "id": "a",
+      "tool": "find_order",
+      "after": [],
+      "ms": 100,
+      "ok": false
+     },
+     {
+      "id": "b",
+      "tool": "get_menu",
+      "after": [
+       "a"
+      ],
+      "ms": 100,
+      "ok": true
+     },
+     {
+      "id": "c",
+      "tool": "cart_add",
+      "after": [
+       "b"
+      ],
+      "ms": 100,
+      "ok": true
+     },
+     {
+      "id": "d",
+      "tool": "search_store",
+      "after": [],
+      "ms": 80,
+      "ok": true
+     }
+    ],
+    4
+   ],
+   "expected": {
+    "status": {
+     "a": "failed",
+     "b": "skipped",
+     "c": "skipped",
+     "d": "done"
+    },
+    "start": {
+     "a": 0,
+     "d": 0
+    },
+    "end": {
+     "d": 80,
+     "a": 100
+    },
+    "total": 100
+   }
+  },
+  {
+   "name": "计划里有支付：拒绝",
+   "args": [
+    [
+     {
+      "id": "a",
+      "tool": "cart_add",
+      "after": [],
+      "ms": 100,
+      "ok": true
+     },
+     {
+      "id": "b",
+      "tool": "pay",
+      "after": [
+       "a"
+      ],
+      "ms": 100,
+      "ok": true
+     }
+    ],
+    2
+   ],
+   "raises": true
+  },
+  {
+   "name": "依赖不存在",
+   "args": [
+    [
+     {
+      "id": "a",
+      "tool": "x",
+      "after": [
+       "z"
+      ],
+      "ms": 100,
+      "ok": true
+     }
+    ],
+    2
+   ],
+   "raises": true
+  },
+  {
+   "name": "有环",
+   "args": [
+    [
+     {
+      "id": "a",
+      "tool": "x",
+      "after": [
+       "b"
+      ],
+      "ms": 100,
+      "ok": true
+     },
+     {
+      "id": "b",
+      "tool": "x",
+      "after": [
+       "a"
+      ],
+      "ms": 100,
+      "ok": true
+     }
+    ],
+    2
+   ],
+   "raises": true
+  },
+  {
+   "name": "重复 id",
+   "args": [
+    [
+     {
+      "id": "a",
+      "tool": "x",
+      "after": [],
+      "ms": 100,
+      "ok": true
+     },
+     {
+      "id": "a",
+      "tool": "y",
+      "after": [],
+      "ms": 100,
+      "ok": true
+     }
+    ],
+    2
+   ],
+   "raises": true
+  },
+  {
+   "name": "并发上限为 0",
+   "args": [
+    [
+     {
+      "id": "s1",
+      "tool": "find_order",
+      "after": [],
+      "ms": 300,
+      "ok": true
+     },
+     {
+      "id": "s2",
+      "tool": "get_store",
+      "after": [
+       "s1"
+      ],
+      "ms": 200,
+      "ok": true
+     },
+     {
+      "id": "s3",
+      "tool": "get_menu",
+      "after": [
+       "s1"
+      ],
+      "ms": 400,
+      "ok": true
+     },
+     {
+      "id": "s4",
+      "tool": "estimate_eta",
+      "after": [
+       "s1"
+      ],
+      "ms": 250,
+      "ok": true
+     },
+     {
+      "id": "s5",
+      "tool": "cart_add",
+      "after": [
+       "s2",
+       "s3"
+      ],
+      "ms": 150,
+      "ok": true
+     },
+     {
+      "id": "s6",
+      "tool": "price_quote",
+      "after": [
+       "s4",
+       "s5"
+      ],
+      "ms": 200,
+      "ok": true
+     }
+    ],
+    0
+   ],
+   "raises": true
+  },
+  {
+   "name": "30 步随机计划",
+   "args": [
+    [
+     {
+      "id": "t0",
+      "tool": "x",
+      "after": [],
+      "ms": 150,
+      "ok": true
+     },
+     {
+      "id": "t1",
+      "tool": "x",
+      "after": [],
+      "ms": 100,
+      "ok": true
+     },
+     {
+      "id": "t2",
+      "tool": "x",
+      "after": [],
+      "ms": 300,
+      "ok": true
+     },
+     {
+      "id": "t3",
+      "tool": "x",
+      "after": [
+       "t0"
+      ],
+      "ms": 100,
+      "ok": true
+     },
+     {
+      "id": "t4",
+      "tool": "x",
+      "after": [],
+      "ms": 200,
+      "ok": false
+     },
+     {
+      "id": "t5",
+      "tool": "x",
+      "after": [
+       "t0",
+       "t3",
+       "t4"
+      ],
+      "ms": 50,
+      "ok": true
+     },
+     {
+      "id": "t6",
+      "tool": "x",
+      "after": [
+       "t0",
+       "t1",
+       "t5"
+      ],
+      "ms": 450,
+      "ok": true
+     },
+     {
+      "id": "t7",
+      "tool": "x",
+      "after": [
+       "t1",
+       "t3"
+      ],
+      "ms": 450,
+      "ok": true
+     },
+     {
+      "id": "t8",
+      "tool": "x",
+      "after": [
+       "t0",
+       "t2"
+      ],
+      "ms": 200,
+      "ok": true
+     },
+     {
+      "id": "t9",
+      "tool": "x",
+      "after": [],
+      "ms": 50,
+      "ok": true
+     },
+     {
+      "id": "t10",
+      "tool": "x",
+      "after": [
+       "t5",
+       "t6",
+       "t8"
+      ],
+      "ms": 400,
+      "ok": true
+     },
+     {
+      "id": "t11",
+      "tool": "x",
+      "after": [
+       "t3",
+       "t4",
+       "t5"
+      ],
+      "ms": 150,
+      "ok": true
+     },
+     {
+      "id": "t12",
+      "tool": "x",
+      "after": [
+       "t1"
+      ],
+      "ms": 250,
+      "ok": true
+     },
+     {
+      "id": "t13",
+      "tool": "x",
+      "after": [
+       "t11",
+       "t7"
+      ],
+      "ms": 250,
+      "ok": true
+     },
+     {
+      "id": "t14",
+      "tool": "x",
+      "after": [],
+      "ms": 100,
+      "ok": true
+     },
+     {
+      "id": "t15",
+      "tool": "x",
+      "after": [
+       "t12"
+      ],
+      "ms": 300,
+      "ok": true
+     },
+     {
+      "id": "t16",
+      "tool": "x",
+      "after": [
+       "t0",
+       "t10",
+       "t13"
+      ],
+      "ms": 100,
+      "ok": true
+     },
+     {
+      "id": "t17",
+      "tool": "x",
+      "after": [
+       "t10",
+       "t11"
+      ],
+      "ms": 400,
+      "ok": true
+     },
+     {
+      "id": "t18",
+      "tool": "x",
+      "after": [
+       "t17",
+       "t2",
+       "t8"
+      ],
+      "ms": 400,
+      "ok": true
+     },
+     {
+      "id": "t19",
+      "tool": "x",
+      "after": [],
+      "ms": 50,
+      "ok": true
+     },
+     {
+      "id": "t20",
+      "tool": "x",
+      "after": [
+       "t14",
+       "t18"
+      ],
+      "ms": 250,
+      "ok": true
+     },
+     {
+      "id": "t21",
+      "tool": "x",
+      "after": [
+       "t0",
+       "t14"
+      ],
+      "ms": 300,
+      "ok": true
+     },
+     {
+      "id": "t22",
+      "tool": "x",
+      "after": [],
+      "ms": 400,
+      "ok": false
+     },
+     {
+      "id": "t23",
+      "tool": "x",
+      "after": [
+       "t4",
+       "t7"
+      ],
+      "ms": 350,
+      "ok": true
+     },
+     {
+      "id": "t24",
+      "tool": "x",
+      "after": [
+       "t14",
+       "t2",
+       "t5"
+      ],
+      "ms": 350,
+      "ok": true
+     },
+     {
+      "id": "t25",
+      "tool": "x",
+      "after": [
+       "t13"
+      ],
+      "ms": 450,
+      "ok": true
+     },
+     {
+      "id": "t26",
+      "tool": "x",
+      "after": [
+       "t11",
+       "t12",
+       "t21"
+      ],
+      "ms": 200,
+      "ok": true
+     },
+     {
+      "id": "t27",
+      "tool": "x",
+      "after": [
+       "t4"
+      ],
+      "ms": 200,
+      "ok": true
+     },
+     {
+      "id": "t28",
+      "tool": "x",
+      "after": [],
+      "ms": 400,
+      "ok": true
+     },
+     {
+      "id": "t29",
+      "tool": "x",
+      "after": [
+       "t8"
+      ],
+      "ms": 250,
+      "ok": false
+     }
+    ],
+    4
+   ],
+   "expected": {
+    "status": {
+     "t0": "done",
+     "t1": "done",
+     "t2": "done",
+     "t3": "done",
+     "t4": "failed",
+     "t5": "skipped",
+     "t6": "skipped",
+     "t7": "done",
+     "t8": "done",
+     "t9": "done",
+     "t10": "skipped",
+     "t11": "skipped",
+     "t12": "done",
+     "t13": "skipped",
+     "t14": "done",
+     "t15": "done",
+     "t16": "skipped",
+     "t17": "skipped",
+     "t18": "skipped",
+     "t19": "done",
+     "t20": "skipped",
+     "t21": "done",
+     "t22": "failed",
+     "t23": "skipped",
+     "t24": "skipped",
+     "t25": "skipped",
+     "t26": "skipped",
+     "t27": "skipped",
+     "t28": "done",
+     "t29": "failed"
+    },
+    "start": {
+     "t0": 0,
+     "t1": 0,
+     "t2": 0,
+     "t4": 0,
+     "t9": 100,
+     "t3": 150,
+     "t12": 150,
+     "t14": 200,
+     "t7": 250,
+     "t8": 300,
+     "t19": 300,
+     "t21": 350,
+     "t15": 400,
+     "t22": 500,
+     "t28": 650,
+     "t29": 700
+    },
+    "end": {
+     "t1": 100,
+     "t0": 150,
+     "t9": 150,
+     "t4": 200,
+     "t3": 250,
+     "t2": 300,
+     "t14": 300,
+     "t19": 350,
+     "t12": 400,
+     "t8": 500,
+     "t21": 650,
+     "t7": 700,
+     "t15": 700,
+     "t22": 900,
+     "t29": 950,
+     "t28": 1050
+    },
+    "total": 1050
+   }
+  }
+ ]
+}

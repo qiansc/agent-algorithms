@@ -1,0 +1,14 @@
+---
+import { inline } from './shared';
+
+interface Props {
+  caption?: string;
+}
+
+const { caption } = Astro.props;
+---
+
+<div class="stepper-step" data-step>
+  <div class="stepper-visual"><slot /></div>
+  {caption && <p class="stepper-caption" set:html={inline(caption)} />}
+</div>

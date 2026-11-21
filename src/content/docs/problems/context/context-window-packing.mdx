@@ -1,0 +1,160 @@
+---
+title: 上下文超长了，保留哪些历史消息
+description: 预算有限时从最新消息往回装，放不下就停，再丢掉开头不是 user 的消息，一遍扫描 O(m)。
+sidebar:
+  label: 13. 上下文超长的取舍
+  order: 13
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Stepper, Step } from '~/components/viz';
+
+export const msgs = ['sys 5', 'user 2', 'asst 6', 'user 3', 'asst 8', 'user 2'];
+export const frames = [
+  {
+    tones: ['done'], range: null, pointers: [],
+    caption: 'system 必须保留，先从 20 里扣掉 5。留给历史消息的是 15。',
+  },
+  {
+    tones: ['done', null, null, null, null, 'strong'], range: [5, 5, '已用 2 / 15'], pointers: [{ at: 5, label: '装入' }],
+    caption: '从最新的 `user 2` 开始。0 + 2 = 2，不超过 15，装入。',
+  },
+  {
+    tones: ['done', null, null, null, 'strong', 'soft'], range: [4, 5, '已用 10 / 15'], pointers: [{ at: 4, label: '装入' }],
+    caption: '往前一条是 `assistant 8`。2 + 8 = 10，不超过 15，装入。',
+  },
+  {
+    tones: ['done', null, null, 'strong', 'soft', 'soft'], range: [3, 5, '已用 13 / 15'], pointers: [{ at: 3, label: '装入' }],
+    caption: '再往前是 `user 3`。10 + 3 = 13，装入。',
+  },
+  {
+    tones: ['done', 'muted', 'strong', 'soft', 'soft', 'soft'], range: [3, 5, '已用 13 / 15'], pointers: [{ at: 2, label: '放不下' }],
+    caption: '轮到 `assistant 6`：13 + 6 = 19，超过 15。停，下标 1 和 2 都不要了。',
+  },
+  {
+    tones: ['done', 'muted', 'muted', 'done', 'done', 'done'], range: [3, 5, '以 user 开头'], pointers: [],
+    caption: '保留下来的第一条是 `user 3`，不用丢。结果是 `system 5, user 3, assistant 8, user 2`，剩余 20 − 5 − 13 = 2。',
+  },
+  {
+    tones: ['done', 'warn', 'muted', 'done', 'done', 'done'], range: null, pointers: [{ at: 1, label: '跳过去装它？', tone: 'warn' }],
+    caption: '如果不停，跳过它去试更旧的，`user 2` 还能装下（13 + 2 = 15）。可这样第一轮的提问留下了，它的回答 `assistant 6` 却没了。',
+  },
+];
+
+<ProblemMeta slug="context-window-packing" />
+
+## 题目
+
+一段对话是消息列表，每条消息写成 `(角色, token 数)`，按时间从旧到新排列。角色有 `system`、`user`、`assistant` 等。给定 token 预算 `budget`，按下面三条规则决定保留哪些消息：
+
+1. 如果**第一条**消息的角色是 `system`，它必须保留，先从预算里扣掉。别的位置出现的 `system` 当普通消息处理。
+2. 其余历史消息从最新的一条开始，往旧的方向逐条加入。遇到第一条放不下的就停，不跳过它去试更旧的。总数恰好等于预算算放得下。
+3. 保留下来的历史必须以 `user` 消息开头。开头不是 `user` 的消息依次丢掉，它们占的 token 退回预算。
+
+返回 `(保留的消息, 剩余预算)`，保留的消息按原顺序排列。空对话返回 `([], budget)`。token 数都是非负整数。
+
+`budget` 为负数，或者 system 一条就超出预算，抛出 `ValueError`（TypeScript 版抛 `RangeError`）。
+
+## 样例
+
+消息依次是 `system 5, user 2, assistant 6, user 3, assistant 8, user 2`，下标从 0 到 5。
+
+| budget | 保留的消息 | 剩余预算 |
+|---|---|---|
+| 20 | `system 5, user 3, assistant 8, user 2` | 2 |
+| 17 | `system 5, user 2` | 10 |
+| 18 | `system 5, user 3, assistant 8, user 2` | 0 |
+| 4 | 抛出异常 | — |
+
+budget=20 防的是“跳过放不下的那条，接着装更旧的”：这样会多装进下标 1 的 `user 2`，剩余变成 0。budget=17 防两个错误：忘了丢开头的 `assistant 8`；或者丢了却没退回 8 个 token，剩余算成 2。budget=18 时历史正好用满 13，比较要用 `<=`。
+
+## 思路
+
+按题目的三条规则依次做一遍就行：先扣 system，再从新往旧装，最后修开头。用 budget=20 走一遍：
+
+<Stepper title="budget = 20：从最新的消息往回装">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <ArrayCells
+        values={msgs}
+        tones={f.tones}
+        pointers={f.pointers}
+        ranges={f.range ? [{ from: f.range[0], to: f.range[1], label: f.range[2], side: 'bottom' }] : []}
+      />
+    </Step>
+  ))}
+</Stepper>
+
+从最新的消息开始装，是因为模型接着往下说，最需要最近几轮。这样留下的是对话的一段**后缀**：从某条消息一直到最后一条，中间不缺。
+
+放不下就停，也是为了保住这段后缀。看最后一帧：跳过 `assistant 6` 去装 `user 2`，留下的是 `user 2, user 3, assistant 8, user 2`。第一轮的提问还在，回答却没了，对话从中间断开。
+
+第三条规则用 budget=17 来看。留给历史的是 17 − 5 = 12。`user 2` 装入，已用 2；`assistant 8` 装入，已用 10；`user 3` 要 13，超过 12，停。
+
+<Figure caption="budget = 17：停下时保留的历史以 `assistant 8` 开头，丢掉它并退还 8 个 token。">
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">停下时：已用 10 / 12</p>
+      <ArrayCells values={msgs} tones={['done', 'muted', 'muted', 'muted', 'strong', 'soft']} pointers={[{ at: 4, label: '开头不是 user' }]} />
+    </div>
+    <div>
+      <p class="viz-row-label">修正开头后：已用 2 / 12</p>
+      <ArrayCells values={msgs} tones={['done', 'muted', 'muted', 'muted', 'muted', 'done']} />
+    </div>
+  </div>
+</Figure>
+
+这时保留的是 `assistant 8, user 2`，模型会先看到一条没有提问的回答。丢掉 `assistant 8`，已用从 10 降到 2，剩余预算是 17 − 5 − 2 = 10。
+
+空出的 8 个 token 不回头补装。单看 `user 3`，2 + 3 = 5 装得下，可它和 `user 2` 之间隔着丢掉的 `assistant 8`，对话又断了。连着 `assistant 8` 一起装要 2 + 8 + 3 = 13，超过 12。所以只丢、不补。
+
+代码用一个下标 `start` 表示保留 `history[start:]`。第一个循环把 `start` 往左挪，第二个循环往右挪，不用真的从列表头部删元素。
+
+## 代码
+
+<Solution slug="context-window-packing" />
+
+两个版本结构相同。TypeScript 里消息写成带标签的元组类型 `[role: string, tokens: number]`，返回值也是二元组。Python 抛 `ValueError`，TypeScript 抛 `RangeError`，两边的测试都检查了这两种非法输入。
+
+## 复杂度
+
+m 是消息条数。
+
+- **时间 O(m)**：`start` 先从右往左最多走 m 步，再从左往右最多走 m 步，每步只做一次加减和比较。
+- **空间 O(m)**：返回的列表最多装下全部 m 条消息。除此之外只用了几个整数。
+
+## 自测：放不下的那条之后还有能装下的
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+消息 `system 5, user 2, assistant 6, user 3, assistant 8, user 2`，budget=20。正确答案是 `system 5, user 3, assistant 8, user 2`，剩余 2。如果你得到的结果多了开头的 `user 2`、剩余 0，说明遇到放不下的那条没有停，而是跳过它接着往前试，例如在 `for` 循环里写了 `continue` 而不是 `break`。
+
+同一组消息，budget=17。正确答案是 `system 5, user 2`，剩余 10。如果结果里还有 `assistant 8`，是忘了第三条规则；如果消息对了、剩余却是 2，是丢消息时没有把 token 退回预算。
+</Aside>
+
+本页代码还测了空对话、只够放 system、历史全是 assistant、`system` 出现在中间，以及一条 31 条消息的随机对话（和“逐个枚举后缀”的暴力写法对拍）。
+
+## 延伸：有工具调用时，会不会把调用和结果拆开？
+
+带工具的对话里多了两种消息：助手发出的调用，和随后的 `tool` 结果。一次调用和它的结果必须同进同出。只留结果，模型看到一段不知道从哪来的数据；只留调用，很多模型接口会直接报错。
+
+原题的规则下不会拆开。保留的是一段后缀，又以 `user` 开头，所以切口只落在某条 `user` 前面。调用和结果在同一轮里，中间没有 `user`，切口落不到它们中间。
+
+如果去掉第三条规则（有的场景允许历史以助手消息开头），问题就出现了。看这组消息，budget=20：
+
+`system 4, user 3, assistant 2, tool 9, assistant 5, user 2`
+
+逐条装时，历史可用 16：`user 2`、`assistant 5`、`tool 9` 依次装入，已用 16；`assistant 2` 放不下，停。留下的历史以 `tool 9` 开头，正好是发出这次调用的 `assistant 2` 被切掉了。
+
+改法是先把消息分块：每条 `tool` 并进它前面那条消息所在的块。`assistant 2` 和 `tool 9` 合成一个 11 token 的块，其余消息各自成块。然后对块执行同样的“从新往旧装，放不下就停”。`user 2`、`assistant 5` 装入，已用 7；下一个块要 11，7 + 11 = 18 > 16，停。结果是 `system 4, assistant 5, user 2`，剩余 9。
+
+<Solution slug="context-window-packing" file="followup" />
+
+一次调用如果对应好几条 `tool` 结果，它们都会并进同一个块，测试里也覆盖了这种情况。
+
+## 参考
+
+- [LangChain `trim_messages` 源码](https://github.com/langchain-ai/langchain/blob/master/libs/core/langchain_core/messages/utils.py)：提供“从最新往回”“保留 system”“以 user 开头”这几个选项，和本题的规则一一对应。
+- 同样是按长度切分文本：<ProblemLink slug="chunk-with-overlap" />

@@ -1,0 +1,17 @@
+{
+  "python": "top_tools",
+  "typescript": "topTools",
+  "kind": "function",
+  "cases": [
+    {"name": "样例：同频的 calc 和 mail 按名称分先后", "args": [["web", "db", "db", "mail", "web", "calc"], 3], "expected": ["db", "web", "calc"]},
+    {"name": "k 等于工具种数", "args": [["web", "db", "db", "mail", "web", "calc"], 4], "expected": ["db", "web", "calc", "mail"]},
+    {"name": "k 大于工具种数时全部返回", "args": [["web", "db", "db", "mail", "web", "calc"], 10], "expected": ["db", "web", "calc", "mail"]},
+    {"name": "k = 0", "args": [["web", "db"], 0], "expected": []},
+    {"name": "k 为负数", "args": [["web", "db"], -1], "expected": []},
+    {"name": "空日志", "args": [[], 3], "expected": []},
+    {"name": "只有一次调用", "args": [["calc"], 1], "expected": ["calc"]},
+    {"name": "大写字母排在小写之前（按字符编码比较）", "args": [["b", "B", "a"], 3], "expected": ["B", "a", "b"]},
+    {"name": "全部同频，只按名称", "args": [["tts", "asr", "ocr", "asr", "tts", "ocr"], 2], "expected": ["asr", "ocr"]},
+    {"name": "60 条随机日志取前 5", "args": [["calc", "tts", "fetch", "db", "fetch", "map", "map", "map", "asr", "sql", "mail", "fetch", "map", "search", "sql", "sql", "tts", "search", "pdf", "map", "db", "pdf", "mail", "tts", "fetch", "web", "search", "search", "search", "asr", "ocr", "search", "sql", "asr", "mail", "sql", "pdf", "search", "ocr", "mail", "map", "map", "ocr", "mail", "web", "mail", "asr", "mail", "map", "db", "search", "sql", "ocr", "asr", "fetch", "calc", "asr", "pdf", "db", "fetch"], 5], "expected": ["map", "search", "mail", "asr", "fetch"]}
+  ]
+}

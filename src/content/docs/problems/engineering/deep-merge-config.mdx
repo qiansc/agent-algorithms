@@ -1,0 +1,219 @@
+---
+title: 深度合并两份嵌套配置
+description: 两份嵌套的 JSON 配置按键递归合并：两边都是对象才往下合，其余情况用新值，不改动输入。
+sidebar:
+  label: 29. 深度合并嵌套配置
+  order: 29
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Graph, Grid, Stepper, Step, treeLayout } from '~/components/viz';
+
+export const tree = (input) => {
+  const t = treeLayout(input, { siblingGap: 82, x0: 40, levelGap: 70 });
+  return { ...t, nodes: t.nodes.map((n) => ({ ...n, shape: 'rect' })) };
+};
+export const baseTree = tree({
+  label: 'base', children: [
+    { label: 'model', children: [{ label: 'name', sub: '"a"' }, { label: 'temp', sub: '0.7' }] },
+    { label: 'tools', sub: '["search"]' },
+    { label: 'retry', sub: '1' },
+  ],
+});
+export const overrideTree = tree({
+  label: 'override', children: [
+    { label: 'model', children: [{ label: 'temp', sub: '0.2' }, { label: 'top_p', sub: '0.9' }] },
+    { label: 'tools', sub: '["db"]' },
+    { label: 'retry', children: [{ label: 'max', sub: '3' }] },
+  ],
+});
+export const shallowTree = tree({
+  label: '浅合并', children: [
+    { label: 'model', tone: 'warn', children: [{ label: 'name', sub: '丢了', tone: 'warn' }, { label: 'temp', sub: '0.2' }, { label: 'top_p', sub: '0.9' }] },
+    { label: 'tools', sub: '["db"]' },
+    { label: 'retry', children: [{ label: 'max', sub: '3' }] },
+  ],
+});
+export const resultTree = (st) => {
+  const n = (id, label, value, children) => ({
+    id, label, children,
+    tone: st[id] ?? (id === 'root' ? 'default' : 'ghost'),
+    sub: value !== undefined && (st[id] ?? 'ghost') !== 'ghost' ? value : undefined,
+  });
+  return tree(n('root', '结果', undefined, [
+    n('model', 'model', undefined, [n('name', 'name', '"a"'), n('temp', 'temp', '0.2'), n('top_p', 'top_p', '0.9')]),
+    n('tools', 'tools', '["db"]'),
+    n('retry', 'retry', undefined, [n('max', 'max', '3')]),
+  ]));
+};
+export const frames = [
+  {
+    st: { root: 'accent' }, stack: ['第 1 层：整份配置'],
+    caption: '调用 `deep_merge(base, override)`，结果是一个新的空字典。先按 base 的顺序看 `model`、`tools`、`retry`。',
+  },
+  {
+    st: { root: 'default', model: 'accent' }, stack: ['第 1 层：整份配置', '第 2 层：model'],
+    caption: '`model` 两边的值都是字典，递归调用 `deep_merge(base["model"], override["model"])`。',
+  },
+  {
+    st: { model: 'default', name: 'accent' }, stack: ['第 1 层：整份配置', '第 2 层：model'],
+    caption: '在 `model` 这一层，`name` 只在 base 里有，复制 `"a"`。浅合并丢的就是它。',
+  },
+  {
+    st: { model: 'default', name: 'soft', temp: 'accent' }, stack: ['第 1 层：整份配置', '第 2 层：model'],
+    caption: '`temp` 两边都有，但 0.7 和 0.2 都不是字典，用 override 的 0.2。',
+  },
+  {
+    st: { model: 'default', name: 'soft', temp: 'soft', top_p: 'accent' }, stack: ['第 1 层：整份配置', '第 2 层：model'],
+    caption: 'base 的键看完，再补只在 override 里的 `top_p = 0.9`。这一层返回 `{name: "a", temp: 0.2, top_p: 0.9}`。',
+  },
+  {
+    st: { model: 'soft', name: 'soft', temp: 'soft', top_p: 'soft', tools: 'accent' }, stack: ['第 1 层：整份配置'],
+    caption: '`tools` 两边都是列表，不是字典，整体换成 `["db"]`，不拼成 `["search", "db"]`。',
+  },
+  {
+    st: { model: 'soft', name: 'soft', temp: 'soft', top_p: 'soft', tools: 'soft', retry: 'accent', max: 'accent' }, stack: ['第 1 层：整份配置'],
+    caption: '`retry` 在 base 里是 1，在 override 里是字典。只有一边是字典，不递归，整棵 `{max: 3}` 换进来。',
+  },
+  {
+    st: { model: 'soft', name: 'soft', temp: 'soft', top_p: 'soft', tools: 'soft', retry: 'soft', max: 'soft' }, stack: [],
+    caption: 'override 没有 base 之外的顶层键，合并结束。',
+  },
+];
+
+<ProblemMeta slug="deep-merge-config" />
+
+## 题目
+
+实现 `deep_merge(base, override)`，把两份配置合并成一个新字典。两个参数都是从 JSON 解析出的字典（TypeScript 里是普通对象），值只可能是 `null`、布尔、数字、字符串、列表或字典。规则：
+
+1. 某个键只在一边出现，保留这一边的值。
+2. 两边都有这个键，并且两边的值**都是字典**，就对这两个字典递归合并。
+3. 其他情况一律用 override 的值，包括两边都是列表、两边都是数字、一边是字典一边不是、override 的值是 `null`。
+
+不能修改 `base` 和 `override`。结果和输入不能共享任何列表或字典。
+
+键的顺序：先是 base 的键，按 base 的顺序；再是只在 override 里的键，按 override 的顺序。
+
+`base` 或 `override` 本身不是字典时，抛出 `TypeError`。
+
+## 样例
+
+```text
+base     = {"model": {"name": "a", "temp": 0.7},
+            "tools": ["search"],
+            "retry": 1}
+override = {"model": {"temp": 0.2, "top_p": 0.9},
+            "tools": ["db"],
+            "retry": {"max": 3}}
+输出     = {"model": {"name": "a", "temp": 0.2, "top_p": 0.9},
+            "tools": ["db"],
+            "retry": {"max": 3}}
+```
+
+<Figure caption="样例的两份输入画成树。方框里上面是键，下面的小字是值；没有小字的节点，值是字典。">
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">base</p>
+      <Graph {...baseTree} />
+    </div>
+    <div style="margin-top: 0">
+      <p class="viz-row-label">override</p>
+      <Graph {...overrideTree} />
+    </div>
+  </div>
+</Figure>
+
+样例用到了全部三条规则，防的是浅合并：写成 `{**base, **override}`（JS 里是 `{...base, ...override}`）只合并第一层，`model` 整个被换成 `{temp: 0.2, top_p: 0.9}`，`name: "a"` 丢了。
+
+<Figure caption="浅合并的结果：第一层的 `model` 直接用了 override 的值，base 里的 `name` 没了。">
+  <Graph {...shallowTree} />
+</Figure>
+
+## 思路
+
+用递归。遇到两边都是字典的键，调用自己合并这一层，把返回的新字典放进结果；其余的键直接取一边的值。
+
+`model` 这一层要做的事和最外层一样：两个字典，按键合并。其余情况不用往下看：
+
+- 键只在 base 里，比如 `model.name`：复制过来。
+- 键只在 override 里，比如 `model.top_p`：复制过来。
+- 两边都有但不都是字典，比如 `temp` 的 0.7 和 0.2、`tools` 的两个列表、`retry` 的 1 和 `{max: 3}`：用 override 的。
+
+每深入一层，处理的都是上一层的一个值。配置层数有限，最深一层的键都会落进“不都是字典”或“只在一边”，递归就停了。
+
+<Stepper title="用样例走一遍：虚线框是还没处理的位置，高亮框是这一步处理的键，浅色底是已经定下的">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div>
+          <p class="viz-row-label">结果</p>
+          <Graph {...resultTree(f.st)} />
+        </div>
+        <div style="margin-top: 0">
+          <p class="viz-row-label">递归调用栈</p>
+          <Grid rows={f.stack.length ? f.stack.map((s) => [s]) : [['已返回']]} tones={f.stack.length ? { [`${f.stack.length - 1},0`]: 'accent' } : {}} />
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+### 不改输入，也不和输入共享
+
+最容易漏的是复制。如果 `result` 里直接放 `base["tools"]` 这个列表，结果和 base 共用一个列表，往 `result["tools"]` 里追加一项，base 也跟着变。base 往往是全局默认值，被改一次，后面每个请求拿到的默认值都不对。
+
+所以“保留”和“用新值”两处都做深拷贝；递归那一支返回的本来就是新字典。每个值只在最终落脚处复制一次。
+
+## 代码
+
+<Solution slug="deep-merge-config" />
+
+TypeScript 版有三处要多想一步：
+
+- 判断“是不是字典”。`typeof null` 和 `typeof []` 都是 `'object'`。如果只写 `typeof v === 'object'`，`null` 会被当成字典递归进去，`Object.entries(null)` 直接抛错；列表也会被当成字典按下标合并，`["a", "b"]` 和 `["c"]` 会变成 `{"0": "c", "1": "b"}`，连类型都变了。
+- `__proto__` 键。`JSON.parse('{"__proto__": {...}}')` 会得到一个名叫 `__proto__` 的普通键。如果用 `result[key] = value` 往 `{}` 里写，这一句会改掉 `result` 的原型，而不是加一个键。代码先用 `Map` 收集，最后用 `Object.fromEntries` 生成对象，它按普通键处理。判断“base 里有没有这个键”用 `Object.hasOwn`，不用 `key in base`，后者会把原型上的 `toString`、`constructor` 也算进来。
+- 键的顺序。JS 对象会把形如整数的键（`"1"`、`"2"`）排到所有其他键前面，Python 的 `dict` 不会。这只影响打印和序列化的顺序，不影响内容。
+
+深拷贝在 Python 用 `copy.deepcopy`，TypeScript 用 Node 17 起自带的 `structuredClone`。
+
+## 复杂度
+
+n 是两份配置里所有节点（键值对和列表元素）的总数。
+
+- **时间 O(n)**：每个键在它所在的那一层被看一次；每个值只复制一次。`key in override` 是哈希查找，O(1)。
+- **空间 O(n)**：结果是一份完整的新配置。递归深度等于配置的嵌套层数，另占 O(层数) 的栈。
+
+## 自测：null、false 和空字典
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+base 是 `{"a": {"x": 1}}`，override 是 `{"a": null}`，结果是 `{"a": null}`：`null` 不是字典，按规则 3 用新值。TypeScript 里如果抛出 `Cannot convert undefined or null to object`，说明判断字典时没有排除 `null`。
+
+base 是 `{"stream": true, "n": 5}`，override 是 `{"stream": false, "n": 0}`，结果是 `{"stream": false, "n": 0}`。如果得到的还是 `true` 和 5，多半写了 `override[key] || base[key]` 或者 `if value:`，把 `false` 和 0 当成了“没给值”。
+
+base 是 `{"a": {"x": 1}}`，override 是 `{"a": {}}`，结果是 `{"a": {"x": 1}}`：两边都是字典，递归合并，空字典什么也不覆盖。
+</Aside>
+
+本页代码对这三组输入，以及空配置、字典与列表互换、三层嵌套、三种非法输入和一份随机生成的嵌套配置（与另一种写法对拍）都跑过测试；另外检查了输入不被修改、结果与输入不共享对象、`__proto__` 键和键的顺序。
+
+## 延伸：override 写 null 表示删除这个键呢？
+
+很多配置系统约定：override 里写 `null` 表示去掉这一项，而不是设成空值。两种约定都常见，动手前先确认。
+
+如果是删除，递归结构不变。“两边都有这个键”时，在递归判断之前加一个分支：override 的值是 `null`，就不往结果里放这个键。还有两处跟着改：
+
+- base 里本来没有的键写了 `null`：删除一个不存在的键，什么都不做，也不能把 `null` 加进结果。
+- override 整体换进来的子树里也可能写了 `null`，例如 `retry` 原来是 1，override 给 `{"max": null, "n": 2}`。这里同样当作删除，换进来的是 `{"n": 2}`。列表里的 `null` 是普通元素，不删。
+
+<Solution slug="deep-merge-config" file="followup" />
+
+用样例的 base，override 改成 `{"model": {"temp": null}, "retry": null}`，结果是 `{"model": {"name": "a"}, "tools": ["search"]}`：`model.temp` 和 `retry` 被删掉，其他保留。override 里没有 `null` 时，结果和原题完全一样。
+
+## 参考
+
+- [RFC 7396 · JSON Merge Patch](https://www.rfc-editor.org/rfc/rfc7396)：用 JSON 描述“改哪些键”的标准格式，规则和本题的延伸一致：对象递归合并，`null` 表示删除，数组整体替换。
+- [Python 文档 · copy.deepcopy](https://docs.python.org/zh-cn/3/library/copy.html)、[MDN · structuredClone](https://developer.mozilla.org/zh-CN/docs/Web/API/Window/structuredClone)、[MDN · Object.hasOwn](https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Object/hasOwn)
+- 同样是递归处理树形结构的题：<ProblemLink slug="tool-name-trie" />

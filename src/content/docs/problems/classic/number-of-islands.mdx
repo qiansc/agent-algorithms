@@ -1,0 +1,261 @@
+---
+title: 岛屿数量和最大岛屿面积
+description: 在 0/1 网格里数出上下左右连通的岛屿，并求最大岛屿的格子数：逐格扫描加 BFS，入队即标记。
+sidebar:
+  label: 54. 岛屿数量和最大面积
+  order: 54
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Grid, Stepper, Step } from '~/components/viz';
+
+export const G = [[1, 1, 0, 0], [1, 1, 0, 1], [0, 0, 1, 0], [0, 0, 1, 1]];
+export const idx = ['0', '1', '2', '3'];
+export const pt = ([r, c]) => `(${r},${c})`;
+export const bfsCaptions = [
+  '扫描到 (0,0)，是没访问过的陆地：第 1 座岛，`count = 1`。标记它，放进队列。',
+  '弹出 (0,0)，`area = 1`。按下、上、右、左看邻居：(1,0) 和 (0,1) 是没标记的陆地，入队的同时标记。',
+  '弹出 (1,0)，`area = 2`。右边 (1,1) 没标记，标记并入队。上边 (0,0) 已标记，跳过。',
+  '弹出 (0,1)，`area = 3`。它的下边也是 (1,1)，上一步已经标记，不再入队。',
+  '弹出 (1,1)，`area = 4`。邻居都是水或已标记，队列空了。第 1 座岛面积 4，`best = 4`。',
+  '继续扫描，(0,1)、(1,0)、(1,1) 已标记，跳过。到 (1,3) 发现第 2 座岛，`count = 2`，面积 1。(2,2) 只和它斜着挨，不算相连。',
+  '到 (2,2) 发现第 3 座岛，`count = 3`。BFS 依次弹出 (2,2)、(3,2)、(3,3)，面积 3，没超过 4。',
+  '剩下的格子都是水或已标记，扫描结束。返回 `(3, 4)`。',
+];
+export const bfsFrames = (() => {
+  const rows = G.length;
+  const cols = G[0].length;
+  const seen = G.map((row) => row.map(() => false));
+  const popped = new Set();
+  const frames = [];
+  let count = 0;
+  let best = 0;
+  const snap = (queue, now, area) => {
+    const tones = {};
+    const strong = new Set([].concat(now ?? []));
+    G.forEach((row, r) => row.forEach((v, c) => {
+      const k = `${r},${c}`;
+      if (v === 0) tones[k] = 'muted';
+      else if (strong.has(k)) tones[k] = 'strong';
+      else if (popped.has(k)) tones[k] = 'done';
+      else if (seen[r][c]) tones[k] = 'accent';
+    }));
+    frames.push({ tones, queue: queue.map(pt), count, area, best, caption: bfsCaptions[frames.length] });
+  };
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (G[r][c] !== 1 || seen[r][c]) continue;
+      count++;
+      const first = count === 1;
+      let area = 0;
+      seen[r][c] = true;
+      const queue = [[r, c]];
+      const cells = [];
+      if (first) snap(queue, null, area);
+      while (queue.length) {
+        const [x, y] = queue.shift();
+        area++;
+        for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
+          if (nx >= 0 && nx < rows && ny >= 0 && ny < cols && G[nx][ny] === 1 && !seen[nx][ny]) {
+            seen[nx][ny] = true;
+            queue.push([nx, ny]);
+          }
+        }
+        if (first) {
+          if (!queue.length) best = Math.max(best, area);
+          snap(queue, `${x},${y}`, area);
+        }
+        popped.add(`${x},${y}`);
+        cells.push(`${x},${y}`);
+      }
+      best = Math.max(best, area);
+      if (!first) snap([], cells, area);
+    }
+  }
+  snap([], null, null);
+  return frames;
+})();
+export const wrongFrames = [
+  {
+    done: [], now: '0,0', queue: ['(1,0)', '(0,1)'], qTones: ['accent', 'accent'], area: 1,
+    caption: '错误写法：入队时不标记，弹出时才标记。弹出 (0,0)，标记，`area = 1`，(1,0)、(0,1) 入队。',
+  },
+  {
+    done: ['0,0'], now: '1,0', queue: ['(0,1)', '(1,1)'], qTones: ['accent', 'accent'], area: 2,
+    caption: '弹出 (1,0)，标记，`area = 2`。(1,1) 还没标记，入队。',
+  },
+  {
+    done: ['0,0', '1,0'], now: '0,1', queue: ['(1,1)', '(1,1)'], qTones: ['accent', 'warn'], area: 3, warn: true,
+    caption: '弹出 (0,1)，`area = 3`。下边的 (1,1) 在队列里排着，但还没标记，又被放进一次。队列里有两个 (1,1)。',
+  },
+  {
+    done: ['0,0', '1,0', '0,1'], now: '1,1', queue: ['(1,1)'], qTones: ['warn'], area: 4,
+    caption: '弹出第一个 (1,1)，标记，`area = 4`。到这里面积还对。',
+  },
+  {
+    done: ['0,0', '1,0', '0,1'], now: '1,1', queue: [], qTones: [], area: 5, warn: true,
+    caption: '弹出第二个 (1,1)，`area = 5`。同一格数了两遍，最大面积报成 5。岛数仍是 3，因为外层扫描会跳过已标记的格子。',
+  },
+];
+export const wrongTones = (f) => {
+  const tones = {};
+  G.forEach((row, r) => row.forEach((v, c) => { if (v === 0) tones[`${r},${c}`] = 'muted'; }));
+  f.queue.forEach((q) => (tones[q.slice(1, -1)] = 'accent'));
+  f.done.forEach((k) => (tones[k] = 'done'));
+  tones[f.now] = f.warn && f.now === '1,1' ? 'warn' : 'strong';
+  return tones;
+};
+
+<ProblemMeta slug="number-of-islands" />
+
+## 题目
+
+给一个 0/1 矩形网格 `grid`，返回岛屿数量和最大那座岛的格子数（面积）。
+
+- 1 是陆地，0 是水。上下左右相邻的陆地属于同一座岛，斜对角相邻不算。
+
+- Python 返回元组 `(岛屿数量, 最大面积)`，TypeScript 返回数组 `[岛屿数量, 最大面积]`。
+- 空网格 `[]`、只有空行的 `[[]]`、没有陆地的网格都返回 `(0, 0)`。
+- 各行长度不一致，或者出现 0、1 以外的值，视为非法输入，抛出 `ValueError`（TypeScript 里抛 `Error`）。
+
+## 样例
+
+下面的网格记作 G：
+
+```text
+1 1 0 0
+1 1 0 1
+0 0 1 0
+0 0 1 1
+```
+
+| 输入 | 输出 | 说明 |
+|---|---|---|
+| G | `(3, 4)` | 三座岛，面积依次是 4、1、3 |
+| `[[1,0],[0,1]]` | `(2, 1)` | 两格只斜着挨，是两座岛 |
+| `[]` | `(0, 0)` | 空网格 |
+
+G 的三座岛：左上的 2×2 一座，面积 4；(1,3) 单独一座，面积 1；(2,2)、(3,2)、(3,3) 一座，面积 3。坐标一律写成 (行, 列)，从 0 数起。
+
+G 能抓两种错误。把斜对角也算相连，(1,1) 和 (2,2)、(1,3) 和 (2,2) 都会连上，8 块陆地变成一座，得到 `(1, 8)`。BFS 出队时才标记，(1,1) 会进队两次，面积数成 5，得到 `(3, 5)`。
+
+## 思路
+
+逐格扫描，碰到没访问过的陆地就是一座新岛，再用 BFS 把整座岛标记掉，顺便数面积。标记要在入队时做。
+
+从左上到右下逐格扫描。碰到一块没访问过的陆地，岛数加 1，从这一格出发找出所有相连的陆地，标记为已访问，同时数面积。之后扫到这座岛的其他格子，它们已经标记过，直接跳过。
+
+找相连的陆地用广度优先搜索（BFS）：弹出一格，看它上下左右四个邻居，没标记过的陆地就标记并入队。每弹出一格，面积加 1。队列空了，这座岛就找完了。
+
+在 G 上走一遍。灰色是水，浅色带边框是已标记、还在队列里的格子，深色是刚弹出的，浅灰是已弹出、数过面积的。
+
+<Stepper title="逐格扫描 + BFS，入队时就标记">
+  {bfsFrames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div>
+          <p class="viz-row-label">网格 G（行、列从 0 数）</p>
+          <Grid rows={G} tones={f.tones} rowHeaders={idx} colHeaders={idx} cellWidth={44} />
+        </div>
+        <div>
+          <p class="viz-row-label">队列（左边是队头）</p>
+          <ArrayCells values={f.queue.length ? f.queue : ['']} tones={f.queue.length ? f.queue.map(() => 'accent') : ['ghost']} index={false} cell={66} />
+          <div style="margin-top: 0.8rem">
+            <p class="viz-row-label">count = {f.count}{f.area !== null ? `，area = ${f.area}` : ''}，best = {f.best}</p>
+          </div>
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+标记必须在入队时做。标记的意思是“这一格已经在队列里了，别再放”。拖到出队才标记，一格在队列里排队时可能被好几个邻居看到，每个邻居都会再放它一次。G 里的 (1,1) 既是 (1,0) 的右邻居，也是 (0,1) 的下邻居。
+
+<Stepper title="反例：出队时才标记，(1,1) 被数了两遍">
+  {wrongFrames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div>
+          <p class="viz-row-label">网格 G</p>
+          <Grid rows={G} tones={wrongTones(f)} rowHeaders={idx} colHeaders={idx} cellWidth={44} />
+        </div>
+        <div>
+          <p class="viz-row-label">队列（左边是队头）</p>
+          <ArrayCells values={f.queue.length ? f.queue : ['']} tones={f.queue.length ? f.qTones : ['ghost']} index={false} cell={66} />
+          <div style="margin-top: 0.8rem">
+            <p class="viz-row-label">area = {f.area}</p>
+          </div>
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+邻居越多，重复越严重。3×3 全是陆地的网格只有 9 格，出队才标记会把面积数成 19。入队即标记，每格最多进队一次。
+
+## 代码
+
+<Solution slug="number-of-islands" />
+
+这里用显式队列，没有用递归的深度优先搜索。原因是递归深度：一座蛇形的大岛有几万格，递归 DFS 会一层层压下去，超过 Python 默认 1000 层的递归上限就会报错。本页的测试里有一个 300×300 的蛇形通道，面积四万多，显式队列没有这个问题。
+
+两种语言的差异：Python 用 `collections.deque`，`popleft` 是 O(1)；TypeScript 数组的 `shift()` 是 O(n)，所以用“数组加头指针 `head`”模拟队列。Python 返回元组，TypeScript 返回两个元素的数组。
+
+## 复杂度
+
+m 是行数，n 是列数。
+
+- **时间 O(mn)**：外层扫描每格看一次；每块陆地最多入队、出队各一次，出队时看 4 个邻居。
+- **空间 O(mn)**：`seen` 标记表 m × n 个布尔值；队列最坏时也是 O(mn)。
+
+## 自测：斜对角和重复入队
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`[[1,0],[0,1]]` 的正确答案是 `(2, 1)`。如果你得到 `(1, 2)`，是把斜对角的邻居也算进去了：方向数组只能有上下左右 4 个。
+
+`[[1,1,1],[1,1,1],[1,1,1]]` 的正确答案是 `(1, 9)`。如果你得到 `(1, 19)`，是出队时才标记，同一格被它的几个邻居重复放进了队列。
+</Aside>
+
+本页代码对 G、斜对角、空网格、`[[]]`、全是水、单格陆地、全是陆地、中间是水的环形岛、与另一种写法对拍的随机 8×10 网格，以及 300×300 的蛇形通道都跑过测试。
+
+## 延伸：陆地一格一格加进来，每次都要报告岛数？
+
+网格一开始全是水。每次把一格变成陆地，就要报告当前有几座岛。每次都重新扫描、BFS，是 O(mn) 一次，k 次操作就是 O(kmn)。
+
+这时换成**并查集**：每座岛是一个集合，每个集合选一格当“代表”，`find(x)` 沿着父指针找到 x 所在集合的代表，`union` 把两个集合挂在一起。加一格时：
+
+1. 先把它当成一座新岛，岛数加 1。
+2. 看它上下左右已经是陆地的邻居。邻居和自己的代表不同，说明是两座岛，合并，岛数减 1；代表相同，说明早就连在一起了，什么都不做。
+3. 同一格重复加，岛数不变。
+
+第 2 步的“代表相同就跳过”是容易漏的地方。在 3×3 网格里依次加 (0,1)、(1,0)、(0,0)、(1,1)、(2,2)：
+
+<Figure caption="格子里的数字是第几次加入。第 4 次加 (1,1) 时，它的上邻 (0,1) 和左邻 (1,0) 已经通过 (0,0) 连成一座，只能合并一次。">
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">加入顺序</p>
+      <Grid rows={[['3', '1', ''], ['2', '4', ''], ['', '', '5']]} rowHeaders={['0', '1', '2']} colHeaders={['0', '1', '2']} tones={{ '1,1': 'strong', '0,1': 'accent', '1,0': 'accent', '0,0': 'accent', '2,2': 'soft' }} cellWidth={44} />
+    </div>
+    <div>
+      <p class="viz-row-label">每次加入后的岛数</p>
+      <ArrayCells values={[1, 2, 1, 1, 2]} indexStart={1} tones={{ 3: 'strong' }} />
+    </div>
+  </div>
+</Figure>
+
+第 3 次加 (0,0)：岛数先从 2 变成 3，它的下邻 (1,0) 和右邻 (0,1) 分属两座岛，合并两次，3 − 2 = 1。第 4 次加 (1,1)：岛数先变成 2，和上邻 (0,1) 合并一次回到 1；再看左邻 (1,0)，它的代表和 (1,1) 现在的代表相同，跳过。如果每见到一个陆地邻居就减 1，这里会算成 0。
+
+<Solution slug="number-of-islands" file="followup" />
+
+`find` 里用了路径减半（每走一步把自己挂到祖父下面），`union` 把小集合挂到大集合下面。两者一起用时，每次操作的均摊代价是 O(α(mn))，α 是反阿克曼函数，在任何现实规模下都不超过 4。k 次加入一共约 O(k)，额外空间是已经变成陆地的格子数，O(k)。
+
+## 参考
+
+- [力扣 200 · 岛屿数量](https://leetcode.cn/problems/number-of-islands/)
+- [力扣 695 · 岛屿的最大面积](https://leetcode.cn/problems/max-area-of-island/)
+- [力扣 305 · 岛屿数量 II](https://leetcode.cn/problems/number-of-islands-ii/)：本页的延伸
+- Robert E. Tarjan, [Efficiency of a Good But Not Linear Set Union Algorithm](https://doi.org/10.1145/321879.321884), *Journal of the ACM*, 1975：并查集均摊复杂度的出处
+- 同样用队列按层扩展的题：<ProblemLink slug="right-side-view" />

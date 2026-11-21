@@ -1,0 +1,186 @@
+---
+title: 最多同时跑 k 个调用，每个什么时候完成
+description: 把每个空位的空闲时刻放进小顶堆，下一个调用总在最早空出的位置开工，O(n log k)。
+sidebar:
+  label: 18. 最多同时跑 k 个调用
+  order: 18
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { ArrayCells, Grid, Lanes, Stepper, Step } from '~/components/viz';
+
+export const runs = [
+  { slot: 0, start: 0, end: 5 },
+  { slot: 1, start: 0, end: 2 },
+  { slot: 1, start: 2, end: 5 },
+  { slot: 0, start: 5, end: 6 },
+  { slot: 1, start: 5, end: 9 },
+];
+export function slotLanes(count, current, list = runs, warn = false) {
+  return [0, 1].map((s) => ({
+    label: `空位 ${s + 1}`,
+    items: list
+      .map((r, i) => ({ ...r, i }))
+      .filter((r) => r.slot === s && r.i < count)
+      .map((r) => ({ start: r.start, end: r.end, label: String(r.i), tone: r.i === current ? (warn ? 'warn' : 'strong') : 'accent' })),
+  }));
+}
+export const batch = [
+  { slot: 0, start: 0, end: 5 },
+  { slot: 1, start: 0, end: 2 },
+  { slot: 0, start: 5, end: 8 },
+  { slot: 1, start: 5, end: 6 },
+  { slot: 0, start: 8, end: 12 },
+];
+export const frames = [
+  {
+    count: 0, current: null, heap: [0, 0], finish: [], at: 0,
+    caption: '两个空位都在时刻 0 空闲，堆里是 `[0, 0]`。按提交顺序处理调用 0 到 4。',
+  },
+  {
+    count: 1, current: 0, heap: [0, 5], finish: [5], at: 0,
+    caption: '调用 0（耗时 5）：弹出 0，0 时开始，5 时完成。放回 5：这个空位 5 时再空出来。',
+  },
+  {
+    count: 2, current: 1, heap: [2, 5], finish: [5, 2], at: 0,
+    caption: '调用 1（耗时 2）：弹出另一个 0，0 时开始，2 时完成。堆变成 `[2, 5]`，两个空位都占满了。',
+  },
+  {
+    count: 3, current: 2, heap: [5, 5], finish: [5, 2, 5], at: 2,
+    caption: '调用 2（耗时 3）：堆顶是 2，最早的空位在时刻 2 空出。它 2 时开始，5 时完成。',
+  },
+  {
+    count: 4, current: 3, heap: [5, 6], finish: [5, 2, 5, 6], at: 5,
+    caption: '调用 3（耗时 1）：堆里是两个 5，两个空位同时空出来。取哪个都一样，5 时开始，6 时完成。',
+  },
+  {
+    count: 5, current: 4, heap: [6, 9], finish: [5, 2, 5, 6, 9], at: 5,
+    caption: '调用 4（耗时 4）：弹出剩下的 5，5 时开始，9 时完成。完成时刻是 `[5, 2, 5, 6, 9]`。',
+  },
+  {
+    count: 5, current: null, heap: [6, 9], finish: [5, 2, 5, 6, 9], at: 9, order: true,
+    caption: '按完成时刻排序，相同时按下标：1 最早（2 时）；0 和 2 都是 5 时，0 在前；然后是 3 和 4。完成顺序 `[1, 0, 2, 3, 4]`。',
+  },
+  {
+    count: 5, current: 4, heap: null, finish: [5, 2, 8, 6, 12], at: 12, batch: true,
+    caption: '换成按批次跑：0 和 1 都完成（5 时）后才跑 2 和 3，再跑 4。空位 2 在 2 到 5 之间空着，最后 12 时才完成。',
+  },
+];
+
+<ProblemMeta slug="concurrency-limited-calls" />
+
+## 题目
+
+有 n 个工具调用，最多同时运行 `limit` 个。求每个调用的完成时刻和完成顺序。
+
+- 输入：`durations[i]` 是第 i 个调用的耗时，正整数，数组按提交顺序排列。时刻 0 所有调用都已提交。
+- 调用严格按提交顺序开始：一有空位，下一个调用就占上；同时空出几个位置，就按顺序依次占上。
+
+返回两样东西：
+
+- `finish`：每个调用的完成时刻，按调用下标排列。
+- `order`：调用的完成顺序。同一时刻完成的，下标小的在前。
+
+`durations` 为空时返回两个空列表。`limit < 1` 或耗时不是正数时，抛出 `ValueError`（TypeScript 抛 `RangeError`）。
+
+## 样例
+
+| durations | limit | finish | order |
+|---|---|---|---|
+| `[5, 2, 3, 1, 4]` | 2 | `[5, 2, 5, 6, 9]` | `[1, 0, 2, 3, 4]` |
+| `[1, 10, 1, 1, 1]` | 2 | `[1, 10, 2, 3, 4]` | `[0, 2, 3, 4, 1]` |
+| `[2, 2, 2]` | 3 | `[2, 2, 2]` | `[0, 1, 2]` |
+
+第二个样例专门卡“按批次跑”：每次启动 `limit` 个，整批完成再启动下一批。那样调用 2、3 要等调用 1 到 10 时才开始，结果是 `[1, 10, 11, 11, 12]`。题目要求一有空位就补上：调用 1 在跑的时候，另一个空位接连跑完 2、3、4。
+
+## 思路
+
+用小顶堆存每个空位的空闲时刻。下一个调用总在堆顶那个时刻开始。
+
+每个空位记一个数：它下次空闲的时刻。下一个调用的开始时刻就是其中最小的。开始时刻加耗时是它的完成时刻，也是这个空位新的空闲时刻。
+
+反复取最小值、再放回一个更大的值，正是**小顶堆**的用法：堆里放 `limit` 个空闲时刻，堆顶最小。每个调用弹出一次、放回一次。
+
+<Stepper title="durations = [5, 2, 3, 1, 4]，limit = 2">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <Lanes
+        lanes={slotLanes(f.count, f.current, f.batch ? batch : runs, f.batch)}
+        from={0}
+        to={12}
+        scale={42}
+        marks={[{ at: f.at, label: f.batch ? '12？' : `t = ${f.at}`, tone: f.batch ? 'warn' : 'accent' }]}
+      />
+      <div class="viz-row">
+        {f.heap && (
+          <div>
+            <p class="viz-row-label">堆：各空位的空闲时刻</p>
+            <ArrayCells values={f.heap} tones={['accent']} index={false} />
+          </div>
+        )}
+        <div>
+          <p class="viz-row-label">{f.order ? '完成顺序' : '完成时刻 finish'}</p>
+          {f.order ? (
+            <ArrayCells values={[1, 0, 2, 3, 4]} tones={['done', 'done', 'done', 'done', 'done']} index={false} />
+          ) : (
+            <ArrayCells values={f.finish.length ? f.finish : ['']} tones={f.finish.length ? f.finish.map((_, i) => (i === f.current ? (f.batch ? 'warn' : 'strong') : null)) : ['ghost']} index={f.finish.length > 0} />
+          )}
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+泳道色块上的数字是调用编号。堆里只存时刻，不存是第几个空位：题目只问完成时刻，哪个空位跑都一样。图里分出空位 1 和 2 只为方便看。
+
+为什么这和题目描述的过程一致？按提交顺序处理到第 i 个调用时，堆里存的是每个位置上最后一个调用的完成时刻。最小的那个就是最先空出的位置。第 i 个调用不能更早开始，因为所有位置都还占着；也不会更晚，因为题目要求一有空位就补上。
+
+完成顺序要单独排序，不能照搬处理顺序。样例里调用 1 第二个开始，却第一个完成。
+
+## 代码
+
+<Solution slug="concurrency-limited-calls" />
+
+Python 的堆用标准库 `heapq`。TypeScript 没有内置的堆，`MinHeap` 是手写的小顶堆，和 <ProblemLink slug="lexicographic-tool-order" /> 里的写法相同，只多了一个可以传入初始元素的构造函数。
+
+最后排序时，TypeScript 的比较函数写成 `finish[i] - finish[j] || i - j`：完成时刻相同时差为 0，再按下标比。Python 用元组 `(finish[i], i)` 作排序键，效果相同。两边的排序都稳定，不写第二个条件下标小的也会在前，写出来更清楚。
+
+## 复杂度
+
+n 是调用个数，k 是 `limit`。
+
+- **时间 O(n log k + n log n)**：堆里最多 min(k, n) 个元素，每个调用弹出、放回各一次，O(log k)；最后给完成顺序排序 O(n log n)。
+- **空间 O(n)**：`finish` 和 `order` 各 n 个元素，堆最多 min(k, n) 个。
+
+## 自测：一个慢调用夹在中间
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`durations = [1, 10, 1, 1, 1]`，`limit = 2`。正确答案是 `finish = [1, 10, 2, 3, 4]`，`order = [0, 2, 3, 4, 1]`。如果你得到 `[1, 10, 11, 11, 12]`，是按批次启动，等一整批都完成才开下一批。
+
+`durations = [5, 2, 3, 1, 4]`，`limit = 2`。正确的完成顺序是 `[1, 0, 2, 3, 4]`。如果你得到 `[0, 1, 2, 3, 4]`，是把调用开始的顺序当成了完成顺序，忘了最后按完成时刻排序。
+</Aside>
+
+本页代码还测了 `limit = 1`（完全串行）、空列表、同一时刻完成、非法输入，以及 50 个调用的随机数据（和逐个时刻推进的模拟对拍）。
+
+## 延伸：真的有一批异步调用，怎么限流？
+
+上面是纸面推算。实际程序里调用是真正的异步函数，事先不知道耗时。这时用**信号量**：共有 `limit` 个名额，调用开始前拿一个，结束后还回去；名额用完，后来的调用排队等。
+
+Python 有现成的 `asyncio.Semaphore`。`async with sem:` 进入时拿名额，退出时归还；调用中途抛异常也会归还，不会让名额越用越少。JavaScript 没有内置的信号量，TypeScript 版自己写了一个：`acquire` 有名额就直接拿，没有就把一个 `resolve` 函数排进队尾；`release` 优先把名额直接交给队首的等待者，没有人等时才把名额放回。归还写在 `finally` 里，作用和 `async with` 一样。
+
+<Solution slug="concurrency-limited-calls" file="followup" />
+
+`simulate` 用睡眠模拟耗时，每个时间单位对应 `unit`（Python 是秒，TypeScript 是毫秒）。测试用 `durations = [9, 1, 2, 2, 2]`、`limit = 2`，堆推算出的完成顺序是 `[1, 2, 3, 4, 0]`，真实计时跑出来也一样。这组数据的完成时刻两两至少差 2 个单位。样例 1 里调用 0 和 2 都在 5 时完成，真实计时下谁先取决于调度误差，不适合比对。
+
+测试还检查了三件事：同时运行的调用从没超过 `limit` 个，调用按提交顺序开始，一个调用失败后它的名额会还给下一个。
+
+如果调用之间还有依赖（某个工具要等另一个的结果），就把入度表加进来：只有依赖都完成的调用才能进入等待队列，空位仍按队列顺序分配。依赖图怎么建、什么时候“就绪”，见 <ProblemLink slug="parallel-finish-time" />。
+
+## 参考
+
+- [Python 文档 · `asyncio.Semaphore`](https://docs.python.org/3/library/asyncio-sync.html#asyncio.Semaphore)
+- [Python 文档 · `heapq`](https://docs.python.org/3/library/heapq.html)
+- [力扣 1834 · 单线程 CPU](https://leetcode.cn/problems/single-threaded-cpu/)：同样用堆模拟任务何时开始、何时结束

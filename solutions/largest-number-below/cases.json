@@ -1,0 +1,23 @@
+{
+  "python": "largest_below",
+  "typescript": "largestBelow",
+  "kind": "function",
+  "cases": [
+    { "name": "样例 1：第三位不可用，在那里变小", "args": [2533, [1, 2, 5, 9]], "expected": 2529 },
+    { "name": "样例 2：每一位都可用，要一路退回第 0 位", "args": [2111, [1, 2]], "expected": 1222 },
+    { "name": "样例 3：同样位数做不到，少一位", "args": [1000, [2, 3]], "expected": 333 },
+    { "name": "样例 4：n = 1，没有答案", "args": [1, [1]], "expected": -1 },
+    { "name": "一位数，没有更小的可用数字", "args": [9, [9]], "expected": -1 },
+    { "name": "两位数退成一位数", "args": [10, [9]], "expected": 9 },
+    { "name": "一位数，有更小的数字", "args": [5, [1, 2]], "expected": 2 },
+    { "name": "退一位后最后两位都要变", "args": [4321, [4, 3, 2, 1]], "expected": 4314 },
+    { "name": "n 本身可以拼出，仍要严格小于", "args": [1234, [1, 2, 3, 4]], "expected": 1233 },
+    { "name": "digits 有重复、无序", "args": [2111, [2, 1, 2]], "expected": 1222 },
+    { "name": "前缀断在第 1 位", "args": [23121, [2, 4, 9]], "expected": 22999 },
+    { "name": "全部相同的 n", "args": [111, [1]], "expected": 11 },
+    { "name": "最大安全整数", "args": [9007199254740991, [1, 9]], "expected": 1999999999999999 },
+    { "name": "digits 为空", "args": [100, []], "raises": true },
+    { "name": "digits 含 0", "args": [100, [0, 1]], "raises": true },
+    { "name": "n 不是正整数", "args": [0, [1]], "raises": true }
+  ]
+}

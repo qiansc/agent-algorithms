@@ -1,0 +1,74 @@
+---
+// UCT 分数拆成两段的堆叠条：下段是平均价值 W/n，上段是探索奖励 c·√(ln N / n)。
+// 颜色沿用 viz.css 的 tone 类：平均价值用 done（灰），探索奖励用 accent（浅底加强调色描边），
+// 被选中的孩子的探索奖励段换成 strong（实心强调色）。
+interface Item {
+  label: string;
+  sub?: string;
+  mean: number;
+  bonus: number;
+  chosen?: boolean;
+}
+interface Props {
+  items: Item[];
+  max?: number;
+  digits?: number;
+  barHeight?: number;
+  ariaLabel?: string;
+}
+
+const { items, digits = 3, barHeight = 190, ariaLabel } = Astro.props;
+const max = Astro.props.max ?? Math.max(...items.map((i) => i.mean + i.bonus));
+const bw = 64;
+const gap = 56;
+const left = 12;
+const top = 24;
+const bottom = top + barHeight;
+const width = left + items.length * bw + (items.length - 1) * gap + 150;
+const height = bottom + 46;
+const y = (v: number) => (v / max) * barHeight;
+const fmt = (v: number) => v.toFixed(digits);
+const lx = left + items.length * bw + (items.length - 1) * gap + 28;
+---
+
+<svg class="viz" viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label={ariaLabel ?? 'UCT 分数拆解'}>
+  <line class="viz-axis" x1={left - 6} x2={left + items.length * bw + (items.length - 1) * gap + 6} y1={bottom} y2={bottom} />
+  {items.map((it, i) => {
+    const x = left + i * (bw + gap);
+    const hm = y(it.mean);
+    const hb = y(it.bonus);
+    return (
+      <g>
+        <g class="viz-cell t-done">
+          <rect x={x} y={bottom - hm} width={bw} height={Math.max(hm, 0.5)} rx="3" />
+          {hm >= 16 && (
+            <text x={x + bw / 2} y={bottom - hm / 2} text-anchor="middle" dominant-baseline="central" style="font-size:12px">{fmt(it.mean)}</text>
+          )}
+        </g>
+        <g class={`viz-cell ${it.chosen ? 't-strong' : 't-accent'}`}>
+          <rect x={x} y={bottom - hm - hb} width={bw} height={Math.max(hb, 0.5)} rx="3" />
+          {hb >= 16 && (
+            <text x={x + bw / 2} y={bottom - hm - hb / 2} text-anchor="middle" dominant-baseline="central" style="font-size:12px">{fmt(it.bonus)}</text>
+          )}
+        </g>
+        <text class="viz-bar-value" x={x + bw / 2} y={bottom - hm - hb - 8} text-anchor="middle" style={it.chosen ? 'font-weight:600' : undefined}>
+          {fmt(it.mean + it.bonus)}
+        </text>
+        <text class="viz-label" x={x + bw / 2} y={bottom + 17} text-anchor="middle" style={it.chosen ? 'font-weight:600' : undefined}>{it.label}</text>
+        {it.sub && <text class="viz-sub" x={x + bw / 2} y={bottom + 35} text-anchor="middle">{it.sub}</text>}
+      </g>
+    );
+  })}
+  <g class="viz-cell t-accent">
+    <rect x={lx} y={top} width="14" height="14" rx="2" />
+  </g>
+  <text class="viz-label" x={lx + 22} y={top + 7} dominant-baseline="central">探索奖励</text>
+  <g class="viz-cell t-done">
+    <rect x={lx} y={top + 26} width="14" height="14" rx="2" />
+  </g>
+  <text class="viz-label" x={lx + 22} y={top + 33} dominant-baseline="central">平均价值</text>
+  <g class="viz-cell t-strong">
+    <rect x={lx} y={top + 52} width="14" height="14" rx="2" />
+  </g>
+  <text class="viz-label" x={lx + 22} y={top + 59} dominant-baseline="central">被选中</text>
+</svg>

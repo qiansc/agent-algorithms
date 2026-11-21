@@ -1,0 +1,977 @@
+{
+ "python": "choose_fallback",
+ "typescript": "chooseFallback",
+ "kind": "function",
+ "cases": [
+  {
+   "name": "正文样例：冰美式售罄",
+   "args": [
+    {
+     "name": "冰美式",
+     "category": "咖啡",
+     "temp": "冰",
+     "price": 15,
+     "store": "绿碗轻食",
+     "max_eta": 30
+    },
+    [
+     {
+      "id": "a",
+      "name": "热美式",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "热",
+      "tags": [],
+      "price": 15,
+      "extra_fee": 0,
+      "eta": 24
+     },
+     {
+      "id": "b",
+      "name": "冰拿铁",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [
+       "含奶"
+      ],
+      "price": 18,
+      "extra_fee": 0,
+      "eta": 24
+     },
+     {
+      "id": "c",
+      "name": "冰燕麦拿铁",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [],
+      "price": 20,
+      "extra_fee": 0,
+      "eta": 24
+     },
+     {
+      "id": "d",
+      "name": "冰柠檬茶",
+      "store": "绿碗轻食",
+      "category": "茶饮",
+      "temp": "冰",
+      "tags": [],
+      "price": 14,
+      "extra_fee": 0,
+      "eta": 24
+     },
+     {
+      "id": "e",
+      "name": "冰美式",
+      "store": "街角咖啡",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [],
+      "price": 14,
+      "extra_fee": 4,
+      "eta": 22
+     },
+     {
+      "id": "f",
+      "name": "冰美式",
+      "store": "星河咖啡",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [],
+      "price": 13,
+      "extra_fee": 5,
+      "eta": 38
+     }
+    ],
+    [
+     "含奶"
+    ],
+    2
+   ],
+   "expected": {
+    "action": "ask",
+    "options": [
+     "e",
+     "c"
+    ],
+    "ranked": [
+     [
+      "e",
+      3.8
+     ],
+     [
+      "c",
+      3.0
+     ],
+     [
+      "d",
+      2.0
+     ]
+    ],
+    "dropped": {
+     "a": "温度不符",
+     "b": "忌口：含奶",
+     "f": "送达 38 分钟"
+    }
+   }
+  },
+  {
+   "name": "没有忌口时冰拿铁留下",
+   "args": [
+    {
+     "name": "冰美式",
+     "category": "咖啡",
+     "temp": "冰",
+     "price": 15,
+     "store": "绿碗轻食",
+     "max_eta": 30
+    },
+    [
+     {
+      "id": "a",
+      "name": "热美式",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "热",
+      "tags": [],
+      "price": 15,
+      "extra_fee": 0,
+      "eta": 24
+     },
+     {
+      "id": "b",
+      "name": "冰拿铁",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [
+       "含奶"
+      ],
+      "price": 18,
+      "extra_fee": 0,
+      "eta": 24
+     },
+     {
+      "id": "c",
+      "name": "冰燕麦拿铁",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [],
+      "price": 20,
+      "extra_fee": 0,
+      "eta": 24
+     },
+     {
+      "id": "d",
+      "name": "冰柠檬茶",
+      "store": "绿碗轻食",
+      "category": "茶饮",
+      "temp": "冰",
+      "tags": [],
+      "price": 14,
+      "extra_fee": 0,
+      "eta": 24
+     },
+     {
+      "id": "e",
+      "name": "冰美式",
+      "store": "街角咖啡",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [],
+      "price": 14,
+      "extra_fee": 4,
+      "eta": 22
+     },
+     {
+      "id": "f",
+      "name": "冰美式",
+      "store": "星河咖啡",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [],
+      "price": 13,
+      "extra_fee": 5,
+      "eta": 38
+     }
+    ],
+    [],
+    2
+   ],
+   "expected": {
+    "action": "ask",
+    "options": [
+     "b",
+     "e"
+    ],
+    "ranked": [
+     [
+      "b",
+      3.8
+     ],
+     [
+      "e",
+      3.8
+     ],
+     [
+      "c",
+      3.0
+     ],
+     [
+      "d",
+      2.0
+     ]
+    ],
+    "dropped": {
+     "a": "温度不符",
+     "f": "送达 38 分钟"
+    }
+   }
+  },
+  {
+   "name": "中杯售罄，同店大杯只贵 2 元：自动换",
+   "args": [
+    {
+     "name": "冰美式",
+     "category": "咖啡",
+     "temp": "冰",
+     "price": 15,
+     "store": "绿碗轻食",
+     "max_eta": 30
+    },
+    [
+     {
+      "id": "g",
+      "name": "冰美式",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [],
+      "price": 17,
+      "extra_fee": 0,
+      "eta": 24
+     },
+     {
+      "id": "c",
+      "name": "冰燕麦拿铁",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [],
+      "price": 20,
+      "extra_fee": 0,
+      "eta": 24
+     },
+     {
+      "id": "d",
+      "name": "冰柠檬茶",
+      "store": "绿碗轻食",
+      "category": "茶饮",
+      "temp": "冰",
+      "tags": [],
+      "price": 14,
+      "extra_fee": 0,
+      "eta": 24
+     }
+    ],
+    [
+     "含奶"
+    ],
+    2
+   ],
+   "expected": {
+    "action": "auto",
+    "options": [
+     "g"
+    ],
+    "ranked": [
+     [
+      "g",
+      6.2
+     ],
+     [
+      "c",
+      3.0
+     ],
+     [
+      "d",
+      2.0
+     ]
+    ],
+    "dropped": {}
+   }
+  },
+  {
+   "name": "同店大杯贵 3 元：超过自动上限，要问",
+   "args": [
+    {
+     "name": "冰美式",
+     "category": "咖啡",
+     "temp": "冰",
+     "price": 15,
+     "store": "绿碗轻食",
+     "max_eta": 30
+    },
+    [
+     {
+      "id": "g",
+      "name": "冰美式",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [],
+      "price": 18,
+      "extra_fee": 0,
+      "eta": 24
+     },
+     {
+      "id": "c",
+      "name": "冰燕麦拿铁",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [],
+      "price": 20,
+      "extra_fee": 0,
+      "eta": 24
+     },
+     {
+      "id": "d",
+      "name": "冰柠檬茶",
+      "store": "绿碗轻食",
+      "category": "茶饮",
+      "temp": "冰",
+      "tags": [],
+      "price": 14,
+      "extra_fee": 0,
+      "eta": 24
+     }
+    ],
+    [
+     "含奶"
+    ],
+    2
+   ],
+   "expected": {
+    "action": "ask",
+    "options": [
+     "g",
+     "c"
+    ],
+    "ranked": [
+     [
+      "g",
+      5.8
+     ],
+     [
+      "c",
+      3.0
+     ],
+     [
+      "d",
+      2.0
+     ]
+    ],
+    "dropped": {}
+   }
+  },
+  {
+   "name": "没有候选",
+   "args": [
+    {
+     "name": "冰美式",
+     "category": "咖啡",
+     "temp": "冰",
+     "price": 15,
+     "store": "绿碗轻食",
+     "max_eta": 30
+    },
+    [],
+    [
+     "含奶"
+    ],
+    2
+   ],
+   "expected": {
+    "action": "give_up",
+    "options": [],
+    "ranked": [],
+    "dropped": {}
+   }
+  },
+  {
+   "name": "全部被硬约束淘汰",
+   "args": [
+    {
+     "name": "冰美式",
+     "category": "咖啡",
+     "temp": "冰",
+     "price": 15,
+     "store": "绿碗轻食",
+     "max_eta": 30
+    },
+    [
+     {
+      "id": "a",
+      "name": "热美式",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "热",
+      "tags": [],
+      "price": 15,
+      "extra_fee": 0,
+      "eta": 24
+     },
+     {
+      "id": "b",
+      "name": "冰拿铁",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [
+       "含奶"
+      ],
+      "price": 18,
+      "extra_fee": 0,
+      "eta": 24
+     },
+     {
+      "id": "f",
+      "name": "冰美式",
+      "store": "星河咖啡",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [],
+      "price": 13,
+      "extra_fee": 5,
+      "eta": 38
+     }
+    ],
+    [
+     "含奶"
+    ],
+    2
+   ],
+   "expected": {
+    "action": "give_up",
+    "options": [],
+    "ranked": [],
+    "dropped": {
+     "a": "温度不符",
+     "b": "忌口：含奶",
+     "f": "送达 38 分钟"
+    }
+   }
+  },
+  {
+   "name": "用户没说温度：热美式不被淘汰",
+   "args": [
+    {
+     "name": "冰美式",
+     "category": "咖啡",
+     "temp": null,
+     "price": 15,
+     "store": "绿碗轻食",
+     "max_eta": 30
+    },
+    [
+     {
+      "id": "a",
+      "name": "热美式",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "热",
+      "tags": [],
+      "price": 15,
+      "extra_fee": 0,
+      "eta": 24
+     },
+     {
+      "id": "c",
+      "name": "冰燕麦拿铁",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [],
+      "price": 20,
+      "extra_fee": 0,
+      "eta": 24
+     },
+     {
+      "id": "d",
+      "name": "冰柠檬茶",
+      "store": "绿碗轻食",
+      "category": "茶饮",
+      "temp": "冰",
+      "tags": [],
+      "price": 14,
+      "extra_fee": 0,
+      "eta": 24
+     }
+    ],
+    [
+     "含奶"
+    ],
+    2
+   ],
+   "expected": {
+    "action": "ask",
+    "options": [
+     "a",
+     "c"
+    ],
+    "ranked": [
+     [
+      "a",
+      5.0
+     ],
+     [
+      "c",
+      3.0
+     ],
+     [
+      "d",
+      2.0
+     ]
+    ],
+    "dropped": {}
+   }
+  },
+  {
+   "name": "同分时多花钱少的在前",
+   "args": [
+    {
+     "name": "冰美式",
+     "category": "咖啡",
+     "temp": "冰",
+     "price": 15,
+     "store": "绿碗轻食",
+     "max_eta": 30
+    },
+    [
+     {
+      "id": "x",
+      "name": "冰咖啡A",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [],
+      "price": 15,
+      "extra_fee": 0,
+      "eta": 20
+     },
+     {
+      "id": "y",
+      "name": "冰咖啡B",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [],
+      "price": 12,
+      "extra_fee": 0,
+      "eta": 20
+     }
+    ],
+    [],
+    2
+   ],
+   "expected": {
+    "action": "ask",
+    "options": [
+     "y",
+     "x"
+    ],
+    "ranked": [
+     [
+      "y",
+      5.0
+     ],
+     [
+      "x",
+      5.0
+     ]
+    ],
+    "dropped": {}
+   }
+  },
+  {
+   "name": "25 个随机候选",
+   "args": [
+    {
+     "name": "冰美式",
+     "category": "咖啡",
+     "temp": "冰",
+     "price": 15,
+     "store": "绿碗轻食",
+     "max_eta": 30
+    },
+    [
+     {
+      "id": "r00",
+      "name": "冰柠檬茶",
+      "store": "街角咖啡",
+      "category": "咖啡",
+      "temp": "热",
+      "tags": [],
+      "price": 11,
+      "extra_fee": 0,
+      "eta": 18
+     },
+     {
+      "id": "r01",
+      "name": "冰柠檬茶",
+      "store": "街角咖啡",
+      "category": "咖啡",
+      "temp": "热",
+      "tags": [
+       "含坚果"
+      ],
+      "price": 13,
+      "extra_fee": 5,
+      "eta": 22
+     },
+     {
+      "id": "r02",
+      "name": "冰美式",
+      "store": "绿碗轻食",
+      "category": "茶饮",
+      "temp": "热",
+      "tags": [],
+      "price": 22,
+      "extra_fee": 0,
+      "eta": 39
+     },
+     {
+      "id": "r03",
+      "name": "冰美式",
+      "store": "绿碗轻食",
+      "category": "茶饮",
+      "temp": "冰",
+      "tags": [],
+      "price": 10,
+      "extra_fee": 0,
+      "eta": 21
+     },
+     {
+      "id": "r04",
+      "name": "冰拿铁",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "热",
+      "tags": [
+       "含奶"
+      ],
+      "price": 16,
+      "extra_fee": 5,
+      "eta": 43
+     },
+     {
+      "id": "r05",
+      "name": "冰拿铁",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "热",
+      "tags": [
+       "含奶"
+      ],
+      "price": 10,
+      "extra_fee": 4,
+      "eta": 28
+     },
+     {
+      "id": "r06",
+      "name": "冰拿铁",
+      "store": "绿碗轻食",
+      "category": "茶饮",
+      "temp": "冰",
+      "tags": [
+       "含奶"
+      ],
+      "price": 19,
+      "extra_fee": 5,
+      "eta": 33
+     },
+     {
+      "id": "r07",
+      "name": "冰美式",
+      "store": "街角咖啡",
+      "category": "咖啡",
+      "temp": "热",
+      "tags": [
+       "含奶"
+      ],
+      "price": 19,
+      "extra_fee": 4,
+      "eta": 37
+     },
+     {
+      "id": "r08",
+      "name": "冰柠檬茶",
+      "store": "绿碗轻食",
+      "category": "茶饮",
+      "temp": "热",
+      "tags": [
+       "含坚果"
+      ],
+      "price": 15,
+      "extra_fee": 0,
+      "eta": 23
+     },
+     {
+      "id": "r09",
+      "name": "冰美式",
+      "store": "街角咖啡",
+      "category": "茶饮",
+      "temp": "冰",
+      "tags": [
+       "含坚果"
+      ],
+      "price": 23,
+      "extra_fee": 4,
+      "eta": 27
+     },
+     {
+      "id": "r10",
+      "name": "冰美式",
+      "store": "街角咖啡",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [
+       "含坚果"
+      ],
+      "price": 16,
+      "extra_fee": 0,
+      "eta": 39
+     },
+     {
+      "id": "r11",
+      "name": "冰拿铁",
+      "store": "街角咖啡",
+      "category": "茶饮",
+      "temp": "热",
+      "tags": [
+       "含坚果"
+      ],
+      "price": 18,
+      "extra_fee": 4,
+      "eta": 18
+     },
+     {
+      "id": "r12",
+      "name": "冰柠檬茶",
+      "store": "街角咖啡",
+      "category": "咖啡",
+      "temp": "热",
+      "tags": [],
+      "price": 16,
+      "extra_fee": 4,
+      "eta": 31
+     },
+     {
+      "id": "r13",
+      "name": "冰柠檬茶",
+      "store": "绿碗轻食",
+      "category": "茶饮",
+      "temp": "热",
+      "tags": [
+       "含坚果"
+      ],
+      "price": 12,
+      "extra_fee": 4,
+      "eta": 36
+     },
+     {
+      "id": "r14",
+      "name": "冰柠檬茶",
+      "store": "街角咖啡",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [
+       "含坚果"
+      ],
+      "price": 14,
+      "extra_fee": 5,
+      "eta": 37
+     },
+     {
+      "id": "r15",
+      "name": "冰柠檬茶",
+      "store": "街角咖啡",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [],
+      "price": 22,
+      "extra_fee": 0,
+      "eta": 22
+     },
+     {
+      "id": "r16",
+      "name": "冰柠檬茶",
+      "store": "街角咖啡",
+      "category": "茶饮",
+      "temp": "热",
+      "tags": [],
+      "price": 11,
+      "extra_fee": 5,
+      "eta": 16
+     },
+     {
+      "id": "r17",
+      "name": "热美式",
+      "store": "街角咖啡",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [
+       "含坚果"
+      ],
+      "price": 14,
+      "extra_fee": 5,
+      "eta": 43
+     },
+     {
+      "id": "r18",
+      "name": "热美式",
+      "store": "绿碗轻食",
+      "category": "咖啡",
+      "temp": "热",
+      "tags": [
+       "含奶"
+      ],
+      "price": 14,
+      "extra_fee": 0,
+      "eta": 42
+     },
+     {
+      "id": "r19",
+      "name": "热美式",
+      "store": "街角咖啡",
+      "category": "咖啡",
+      "temp": "热",
+      "tags": [
+       "含坚果"
+      ],
+      "price": 15,
+      "extra_fee": 5,
+      "eta": 29
+     },
+     {
+      "id": "r20",
+      "name": "热美式",
+      "store": "街角咖啡",
+      "category": "茶饮",
+      "temp": "热",
+      "tags": [
+       "含奶"
+      ],
+      "price": 25,
+      "extra_fee": 4,
+      "eta": 43
+     },
+     {
+      "id": "r21",
+      "name": "冰拿铁",
+      "store": "绿碗轻食",
+      "category": "茶饮",
+      "temp": "冰",
+      "tags": [
+       "含坚果"
+      ],
+      "price": 25,
+      "extra_fee": 4,
+      "eta": 20
+     },
+     {
+      "id": "r22",
+      "name": "冰美式",
+      "store": "街角咖啡",
+      "category": "茶饮",
+      "temp": "热",
+      "tags": [],
+      "price": 21,
+      "extra_fee": 5,
+      "eta": 33
+     },
+     {
+      "id": "r23",
+      "name": "冰美式",
+      "store": "街角咖啡",
+      "category": "茶饮",
+      "temp": "热",
+      "tags": [
+       "含奶"
+      ],
+      "price": 18,
+      "extra_fee": 5,
+      "eta": 37
+     },
+     {
+      "id": "r24",
+      "name": "冰柠檬茶",
+      "store": "街角咖啡",
+      "category": "咖啡",
+      "temp": "冰",
+      "tags": [
+       "含奶"
+      ],
+      "price": 18,
+      "extra_fee": 4,
+      "eta": 36
+     }
+    ],
+    [
+     "含奶"
+    ],
+    2
+   ],
+   "expected": {
+    "action": "auto",
+    "options": [
+     "r03"
+    ],
+    "ranked": [
+     [
+      "r03",
+      7.0
+     ],
+     [
+      "r15",
+      0.2
+     ],
+     [
+      "r09",
+      0.2
+     ],
+     [
+      "r21",
+      -3.6
+     ]
+    ],
+    "dropped": {
+     "r00": "温度不符",
+     "r01": "温度不符",
+     "r02": "温度不符",
+     "r04": "温度不符",
+     "r05": "温度不符",
+     "r06": "忌口：含奶",
+     "r07": "温度不符",
+     "r08": "温度不符",
+     "r10": "送达 39 分钟",
+     "r11": "温度不符",
+     "r12": "温度不符",
+     "r13": "温度不符",
+     "r14": "送达 37 分钟",
+     "r16": "温度不符",
+     "r17": "送达 43 分钟",
+     "r18": "温度不符",
+     "r19": "温度不符",
+     "r20": "温度不符",
+     "r22": "温度不符",
+     "r23": "温度不符",
+     "r24": "忌口：含奶"
+    }
+   }
+  }
+ ]
+}

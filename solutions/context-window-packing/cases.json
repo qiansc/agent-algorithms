@@ -1,0 +1,19 @@
+{
+  "python": "pack_context",
+  "typescript": "packContext",
+  "kind": "function",
+  "cases": [
+    {"name": "样例 1：budget=20，遇到放不下的就停", "args": [[["system", 5], ["user", 2], ["assistant", 6], ["user", 3], ["assistant", 8], ["user", 2]], 20], "expected": [[["system", 5], ["user", 3], ["assistant", 8], ["user", 2]], 2]},
+    {"name": "样例 2：budget=17，开头的 assistant 要丢掉并退还预算", "args": [[["system", 5], ["user", 2], ["assistant", 6], ["user", 3], ["assistant", 8], ["user", 2]], 17], "expected": [[["system", 5], ["user", 2]], 10]},
+    {"name": "刚好装满：用 <= 比较", "args": [[["system", 5], ["user", 2], ["assistant", 6], ["user", 3], ["assistant", 8], ["user", 2]], 18], "expected": [[["system", 5], ["user", 3], ["assistant", 8], ["user", 2]], 0]},
+    {"name": "预算只够 system", "args": [[["system", 5], ["user", 2], ["assistant", 6], ["user", 3], ["assistant", 8], ["user", 2]], 5], "expected": [[["system", 5]], 0]},
+    {"name": "全部装得下", "args": [[["system", 5], ["user", 2], ["assistant", 6], ["user", 3], ["assistant", 8], ["user", 2]], 30], "expected": [[["system", 5], ["user", 2], ["assistant", 6], ["user", 3], ["assistant", 8], ["user", 2]], 4]},
+    {"name": "空对话", "args": [[], 0], "expected": [[], 0]},
+    {"name": "没有 system，唯一一条也放不下", "args": [[["user", 3]], 2], "expected": [[], 2]},
+    {"name": "中间的 system 当普通消息", "args": [[["user", 1], ["system", 2], ["user", 3]], 10], "expected": [[["user", 1], ["system", 2], ["user", 3]], 4]},
+    {"name": "全是 assistant：历史为空", "args": [[["system", 1], ["assistant", 2], ["assistant", 3]], 10], "expected": [[["system", 1]], 9]},
+    {"name": "system 超出预算", "args": [[["system", 5], ["user", 2], ["assistant", 6], ["user", 3], ["assistant", 8], ["user", 2]], 4], "raises": true},
+    {"name": "预算为负", "args": [[["user", 1]], -1], "raises": true},
+    {"name": "随机 31 条消息，与逐个后缀枚举对拍", "args": [[["system", 37], ["assistant", 21], ["user", 36], ["assistant", 35], ["assistant", 33], ["user", 28], ["user", 10], ["assistant", 7], ["assistant", 15], ["user", 33], ["assistant", 33], ["user", 31], ["user", 2], ["user", 28], ["user", 9], ["assistant", 11], ["user", 4], ["assistant", 36], ["assistant", 22], ["assistant", 22], ["user", 16], ["assistant", 17], ["assistant", 1], ["assistant", 19], ["assistant", 9], ["assistant", 28], ["user", 13], ["assistant", 39], ["assistant", 2], ["assistant", 7], ["assistant", 37]], 300], "expected": [[["system", 37], ["user", 16], ["assistant", 17], ["assistant", 1], ["assistant", 19], ["assistant", 9], ["assistant", 28], ["user", 13], ["assistant", 39], ["assistant", 2], ["assistant", 7], ["assistant", 37]], 75]}
+  ]
+}

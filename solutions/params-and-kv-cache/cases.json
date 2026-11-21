@@ -1,0 +1,16 @@
+{
+  "python": "param_count",
+  "typescript": "paramCount",
+  "kind": "function",
+  "cases": [
+    { "name": "样例：按 Llama 3 8B 的结构表", "args": [32, 4096, 32, 8, 14336, 128256, false], "expected": 8030261248 },
+    { "name": "输入嵌入和输出层共享", "args": [32, 4096, 32, 8, 14336, 128256, true], "expected": 7504924672 },
+    { "name": "KV 头和查询头一样多（普通多头）", "args": [32, 4096, 32, 32, 14336, 128256, false], "expected": 8835567616 },
+    { "name": "一层的小模型，可以手算", "args": [1, 8, 2, 1, 16, 10, true], "expected": 680 },
+    { "name": "所有维度都是 1", "args": [1, 1, 1, 1, 1, 1, true], "expected": 11 },
+    { "name": "按 Llama 3 70B 的结构表", "args": [80, 8192, 64, 8, 28672, 128256, false], "expected": 70553706496 },
+    { "name": "d 不能被查询头数整除", "args": [32, 4096, 30, 6, 14336, 128256, false], "raises": true },
+    { "name": "查询头数不能被 KV 头数整除", "args": [32, 4096, 32, 12, 14336, 128256, false], "raises": true },
+    { "name": "层数为 0", "args": [0, 4096, 32, 8, 14336, 128256, false], "raises": true }
+  ]
+}

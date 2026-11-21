@@ -1,0 +1,184 @@
+---
+title: 合并同篇文档里重复命中的原文区间
+description: 把同一文档里重叠或首尾相接的命中区间合并：按文档和起点排序，再一遍扫描，只和最后一段比较。
+sidebar:
+  label: 8. 合并重复命中的区间
+  order: 8
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Grid, Lanes, Stepper, Step } from '~/components/viz';
+
+export const sortedHits = [[1, 2, 6], [1, 5, 8], [1, 8, 10], [1, 13, 14], [2, 1, 5]];
+export const rowTones = (cur, done) => {
+  const out = {};
+  sortedHits.forEach((_, r) => {
+    const tone = r === cur ? 'strong' : done.includes(r) ? 'done' : null;
+    if (tone) [0, 1, 2].forEach((c) => (out[`${r},${c}`] = tone));
+  });
+  return out;
+};
+export const outTones = (rows, at, tone = 'accent') => {
+  const out = {};
+  if (at !== null) [0, 1, 2].forEach((c) => (out[`${at},${c}`] = tone));
+  return out;
+};
+export const frames = [
+  {
+    cur: null, done: [], out: [],
+    caption: '先按（文档, 起点）排序。文档 1 的四段在前，起点依次是 2、5、8、13；文档 2 的一段在最后。',
+  },
+  {
+    cur: 0, done: [], out: [[1, 2, 6]], at: 0,
+    caption: '读 `(1, 2, 6)`。结果表是空的，直接放进去。',
+  },
+  {
+    cur: 1, done: [0], out: [[1, 2, 8]], at: 0,
+    caption: '读 `(1, 5, 8)`。同一篇文档，起点 5 ≤ 最后一段的终点 6，并进去，终点改成 max(6, 8) = 8。',
+  },
+  {
+    cur: 2, done: [0, 1], out: [[1, 2, 10]], at: 0,
+    caption: '读 `(1, 8, 10)`。起点 8 等于终点 8，首尾相接，也合并，终点改成 10。',
+  },
+  {
+    cur: 3, done: [0, 1, 2], out: [[1, 2, 10], [1, 13, 14]], at: 1,
+    caption: '读 `(1, 13, 14)`。起点 13 > 终点 10，中间空着 10、11、12 三个 token，另起一段。',
+  },
+  {
+    cur: 4, done: [0, 1, 2, 3], out: [[1, 2, 10], [1, 13, 14], [2, 1, 5]], at: 2,
+    caption: '读 `(2, 1, 5)`。起点 1 ≤ 14，但它属于文档 2，另起一段。扫描结束，结果表就是答案。',
+  },
+  {
+    cur: 4, done: [0, 1, 2, 3], out: [[1, 2, 10], [1, 13, 14]], at: 1, wrong: true,
+    caption: '错误做法：判断时漏了“同一文档”。`(2, 1, 5)` 因为 1 ≤ 14 被并进 `(1, 13, 14)`，终点仍是 14，文档 2 的命中消失了。',
+  },
+];
+
+<ProblemMeta slug="merge-hit-spans" />
+
+## 题目
+
+把检索命中的原文区间里，**同一文档**内重叠或首尾相接的合并成一段。
+
+- 每个命中写成 `(文档 ID, 起始 token, 结束 token)`，左闭右开：`(1, 2, 6)` 表示文档 1 的第 2、3、4、5 个 token。
+- 首尾相接指前一段的终点等于后一段的起点，例如 `[5, 8)` 和 `[8, 10)`。
+- 不同文档互不影响。输出按文档 ID 升序，同一文档内按起点升序。
+- 输入顺序任意，可能有完全相同的命中；输入为空时返回空列表。
+- 起点不小于终点时抛出错误。
+
+## 样例
+
+输入：`[(2, 1, 5), (1, 8, 10), (1, 2, 6), (1, 5, 8), (1, 13, 14)]`
+
+输出：`[(1, 2, 10), (1, 13, 14), (2, 1, 5)]`
+
+这个样例能抓三种错误：
+
+- `(1, 5, 8)` 和 `(1, 8, 10)` 首尾相接。条件写成 `start < 上一段终点` 会把它们拆开，得到 `(1, 2, 8)` 和 `(1, 8, 10)` 两段。
+- `(2, 1, 5)` 的起点 1 比文档 1 最后一段的终点 14 小。不检查文档 ID，它会被并进文档 1。
+- 输入是乱序的，不排序直接扫描会漏掉合并。
+
+另一个常错的输入是 `[(1, 2, 10), (1, 4, 6)]`，答案是 `[(1, 2, 10)]`。合并时直接用新区间的终点，会得到 `(1, 2, 6)`，丢掉 `[6, 10)`。
+
+## 思路
+
+按（文档, 起点）排序后扫一遍，每个区间只和结果表的最后一段比：能接上就合并，终点取较大值；接不上就另起一段。
+
+文档 1 的四段画在同一条 token 轴上：
+
+<Figure caption="文档 1 的四段命中和合并结果。`[2, 6)` 与 `[5, 8)` 在 token 5 上重叠，`[5, 8)` 与 `[8, 10)` 首尾相接，三段连成 `[2, 10)`；`[13, 14)` 前面空着 10–12，单独成段。">
+  <Lanes
+    from={0}
+    to={14}
+    scale={32}
+    lanes={[
+      { label: '[2, 6)', items: [{ start: 2, end: 6, tone: 'accent' }] },
+      { label: '[5, 8)', items: [{ start: 5, end: 8, tone: 'accent' }] },
+      { label: '[8, 10)', items: [{ start: 8, end: 10, tone: 'accent' }] },
+      { label: '[13, 14)', items: [{ start: 13, end: 14, tone: 'accent' }] },
+      { label: '合并后', items: [{ start: 2, end: 10, label: '[2, 10)', tone: 'strong' }, { start: 13, end: 14, tone: 'strong' }] },
+    ]}
+  />
+</Figure>
+
+区间按起点排好后，新区间如果要合并，对象一定是结果表的**最后一段**。结果表里各段之间都有空隙，越往后起点越大。新区间的起点不比之前任何区间小，它要么接在最后一段上，要么在它之后另起一段，够不到更早的段。
+
+所以每读一段只判断一次：同一文档，并且 `start <= 最后一段的终点`，就合并；否则追加一段。
+
+排序也让同一篇文档的区间挨在一起。判断时再加上“文档相同”，就不会跨文档合并。
+
+<Stepper title="按排序后的顺序扫描一遍">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div>
+          <p class="viz-row-label">排序后的命中</p>
+          <Grid colHeaders={['文档', '起点', '终点']} rows={sortedHits} tones={rowTones(f.cur, f.done)} cellWidth={52} />
+        </div>
+        <div style="margin-top: 0">
+          <p class="viz-row-label">结果表</p>
+          <Grid
+            colHeaders={['文档', '起点', '终点']}
+            rows={f.out.length ? f.out : [['', '', '']]}
+            tones={f.out.length ? outTones(f.out, f.at, f.wrong ? 'warn' : 'accent') : { '0,0': 'ghost', '0,1': 'ghost', '0,2': 'ghost' }}
+            cellWidth={52}
+          />
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+终点要取较大值，因为排序只保证起点有序。`[(1, 2, 10), (1, 4, 6)]` 里，后读到的 `[4, 6)` 整个落在 `[2, 10)` 里面。直接用 6 覆盖终点，`[6, 10)` 这 4 个 token 就丢了。
+
+合并后，样例送进上下文的 token 从 14 个降到 13 个。5 个命中的长度依次是 4、2、4、3、1，合并后三段是 8、1、4，token 5 原来被命中两次，现在只留一份。
+
+## 代码
+
+<Solution slug="merge-hit-spans" />
+
+Python 的元组可以直接比大小，`sorted(hits)` 就是按（文档, 起点, 终点）排序。JavaScript 的 `sort` 不传比较函数时会把元素转成字符串再比，`[10, 1, 2]` 会排在 `[9, 1, 2]` 前面，所以 TypeScript 版写了三层比较。
+
+TypeScript 版先用 `[...hits]` 复制再排序，合并时直接改结果表最后一段的终点 `last[2]`。结果表里的数组都是新建的，不会改到输入。
+
+## 复杂度
+
+n 是命中区间的个数。
+
+- **时间 O(n log n)**：排序占 O(n log n)，之后的扫描每个区间只做一次比较，O(n)。
+- **空间 O(n)**：排序后的副本和结果表各最多 n 项。如果命中本来就按（文档, 起点）排好，可以边读边合并，手上只留最后一段，额外空间降到 O(1)。
+
+## 自测：两个容易写错的输入
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`[(1, 0, 3), (1, 3, 5)]` 的正确答案是 `[(1, 0, 5)]`。如果你得到两段，多半把条件写成了 `start < 终点`，首尾相接没有并上。
+
+`[(2, 0, 4), (1, 0, 4), (2, 3, 6)]` 的正确答案是 `[(1, 0, 4), (2, 0, 6)]`。如果你得到 `[(1, 0, 6)]`，说明合并时没有比较文档 ID。
+</Aside>
+
+本页代码还对空输入、只有一段、被大区间整个包住、相隔一个 token、完全重复的命中、起点不小于终点（应报错）和 40 段随机区间跑过测试。随机测试会逐个 token 检查：合并前后覆盖的 token 完全相同，相邻两段之间真的有空隙。
+
+## 延伸：相隔几个 token 的两段也要拼起来呢？
+
+两段命中只隔两三个 token 时，送给模型的原文被拆成两截，读起来不连贯。新规则：同一文档里两段之间空着不超过 `gap` 个 token，也拼成一段，空隙一起带上。
+
+只改判断条件：`start <= 最后一段的终点 + gap`。`gap = 0` 时就是原题。
+
+<Solution slug="merge-hit-spans" file="followup" />
+
+拿样例试。`[2, 10)` 和 `[13, 14)` 之间空着 10、11、12 三个 token：
+
+- `gap = 2`：3 > 2，不拼，结果和原题一样，`[(1, 2, 10), (1, 13, 14), (2, 1, 5)]`。
+- `gap = 3`：13 ≤ 10 + 3，拼成 `[(1, 2, 14), (2, 1, 5)]`，总长 16 个 token，比原题的 13 个多出 3 个，正好是被补进来的空隙。
+
+有了 `gap`，合并会多读进一些没被命中的 token。上下文预算紧时，要把这部分算进去。
+
+## 参考
+
+- [力扣 56 · 合并区间](https://leetcode.cn/problems/merge-intervals/)
+- [Python 文档：排序指南（元组按字典序比较）](https://docs.python.org/zh-cn/3/howto/sorting.html)
+- [MDN：Array.prototype.sort() 的默认比较方式](https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Array/sort)
+- 合并之后，常常还要决定哪些片段放进上下文：<ProblemLink slug="context-window-packing" />

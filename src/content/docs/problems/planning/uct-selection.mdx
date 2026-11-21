@@ -1,0 +1,153 @@
+---
+title: 树搜索选下一步：UCT 公式选哪个孩子
+description: 每个孩子的 UCT 分数等于平均价值加探索奖励，没访问过的先选，返回分数最高的孩子下标。
+sidebar:
+  label: 25. UCT 公式选哪个孩子
+  order: 25
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Stepper, Step } from '~/components/viz';
+import ScoreStack from '~/components/figures/uct-selection/ScoreStack.astro';
+
+export const names = ['A', 'B', 'C'];
+
+export function breakdown(stats) {
+  const parent = stats.reduce((s, [n]) => s + n, 0);
+  const scores = stats.map(([n, w]) => ({ mean: w / n, bonus: Math.SQRT2 * Math.sqrt(Math.log(parent) / n) }));
+  let best = 0;
+  scores.forEach((s, i) => {
+    if (s.mean + s.bonus > scores[best].mean + scores[best].bonus) best = i;
+  });
+  return scores.map((s, i) => ({
+    label: names[i],
+    sub: `n=${stats[i][0]}, W=${stats[i][1].toFixed(1)}`,
+    mean: s.mean,
+    bonus: s.bonus,
+    chosen: i === best,
+  }));
+}
+
+export const rounds = [
+  {
+    stats: [[3, 2.0], [1, 0.9], [6, 4.2]],
+    caption: '第 1 轮：N = 10。B 只试过 1 次，探索奖励 2.146，合计 3.046，选 B。模拟一局，B 拿到 0 分。',
+  },
+  {
+    stats: [[3, 2.0], [2, 0.9], [6, 4.2]],
+    caption: 'B 变成 n = 2、W = 0.9，平均价值降到 0.45；N = 11。B 合计 1.999，仍略高于 A 的 1.931，再选 B。B 又拿到 0 分。',
+  },
+  {
+    stats: [[3, 2.0], [3, 0.9], [6, 4.2]],
+    caption: 'B 变成 n = 3，平均价值只剩 0.3；N = 12。A、B 探索奖励都是 1.287，比平均价值：A 1.954，B 1.587，C 1.610，这次选 A。',
+  },
+  {
+    stats: [[4, 2.0], [3, 0.9], [6, 4.2]],
+    caption: '假设 A 也拿到 0 分，变成 n = 4、W = 2.0；N = 13。A 1.632，C 1.625，B 1.608，仍选 A。A 再拿 0 分，下一轮就轮到 C。',
+  },
+];
+
+<ProblemMeta slug="uct-selection" />
+
+## 题目
+
+蒙特卡洛树搜索（MCTS）每一轮要从当前节点选一个孩子往下走。写函数 `uct_pick(children, c)`，按 UCT 公式返回分数最高的孩子下标：
+
+`score = W / n + c · √(ln N / n)`
+
+- 输入：`children[i] = [n, W]`，孩子 i 被访问过 `n` 次，一共拿到价值 `W`。父节点访问次数 `N` 是所有 `n` 之和。
+- 有 `n = 0` 的孩子时，直接返回其中下标最小的，不用算分。
+- 分数相同时取下标小的。
+- `c` 默认是 √2。`ln` 是自然对数。
+
+- `W` 可以是任意实数。`children` 为空，或某个 `n` 是负数、不是整数时，抛出异常。
+
+## 样例
+
+| `children` | `c` | 输出 | 说明 |
+|---|---|---|---|
+| `[[3,2.0],[1,0.9],[6,4.2]]` | √2 | `1` | B 的两项都最大 |
+| `[[3,2.0],[2,0.9],[6,4.2]]` | √2 | `1` | B 的平均价值最低，仍然被选中 |
+| `[[4,3.0],[0,0.0],[0,0.0]]` | √2 | `1` | 有两个孩子没访问过，取下标小的 |
+
+把三个孩子叫作 A、B、C。样例 1 卡“把 `W` 当平均价值”：直接用累计价值，C 的 4.2 最大，会错选 2。样例 2 卡“只看平均价值”：C 的 0.7 最高，但 B 只试过 2 次，探索奖励把它推到第一。
+
+## 思路
+
+按公式给每个孩子算分，取最高的；没访问过的孩子直接先选。
+
+UCT 分数是两项相加：
+
+- 平均价值 `W / n`：过去表现怎么样。A 试了 3 次，共拿 2.0，平均每次 0.667。
+- 探索奖励 `c · √(ln N / n)`：试得够不够。分母是孩子自己的 `n`，试得越少越大；`ln N` 随总轮数慢慢变大，很久没被选的孩子奖励会涨回来。
+
+用样例 1 算一遍。N = 3 + 1 + 6 = 10，ln 10 ≈ 2.3026，c = √2 ≈ 1.414。
+
+- A：平均 2.0 / 3 ≈ 0.667，探索 1.414 × √(2.3026 / 3) ≈ 1.239，合计 1.906。
+- B：平均 0.9 / 1 = 0.9，探索 1.414 × √(2.3026 / 1) ≈ 2.146，合计 3.046。
+- C：平均 4.2 / 6 = 0.7，探索 1.414 × √(2.3026 / 6) ≈ 0.876，合计 1.576。
+
+<Figure caption="样例 1 的分数拆解。灰色是平均价值，带描边的浅色段是探索奖励，条顶是合计，实心的属于被选中的孩子。B 只访问过 1 次，探索奖励 2.146 占了大头。">
+  <ScoreStack items={breakdown([[3, 2.0], [1, 0.9], [6, 4.2]])} max={3.1} />
+</Figure>
+
+B 胜出：平均价值最高，又只试过一次。C 访问了 6 次，平均价值 0.7 也不低，但探索奖励只剩 0.876，暂时不选。
+
+`n = 0` 的孩子要单独处理，公式里会除以 0。约定它的分数是无穷大，所以先试没试过的孩子，多个时取下标最小的。先处理了 `n = 0`，算分时每个 `n ≥ 1`，N 也至少是 1，不会出现 `ln 0`。
+
+## 代码
+
+<Solution slug="uct-selection" />
+
+比较用严格大于 `>`，扫描时从下标 0 开始，同分时自然保留先出现的下标。`ln N` 对每个孩子都一样，在循环外算一次。
+
+两种语言都用双精度浮点，结果一致。TypeScript 里 `Math.log` 就是自然对数，`Math.SQRT2` 是 √2；判断整数用 `Number.isInteger`。
+
+## 复杂度
+
+m 是孩子的个数。
+
+- **时间 O(m)**：先扫一遍找 `n = 0`、求 N，再扫一遍算分。
+- **空间 O(1)**：只记当前最高分和它的下标。
+
+## 自测：只看平均价值会选错
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`[[3,2.0],[2,0.9],[6,4.2]]`、c = √2 的正确答案是 1。N = 11，三者合计分别是 1.931、1.999、1.594。如果你得到 2，是漏掉了探索奖励，只比了平均价值；如果得到 0，检查一下是不是用了以 10 为底的对数（`math.log10`），那样探索奖励整体变小，A 会反超 B。
+
+`[[1,0.5],[1,0.5]]` 的正确答案是 0。两个孩子完全一样，同分取下标小的；如果得到 1，是比较时写成了 `>=`。
+</Aside>
+
+## 延伸：B 连续拿到 0 分，下一轮还选它吗？
+
+MCTS 选完孩子后，会从那里模拟一局，把奖励加回去：被选中的孩子 `n` 加 1、`W` 加上奖励，父节点 N 也加 1。假设 B 被选中后连续两次拿到 0 分，每轮重新算分：
+
+<Stepper title="B 连续拿到 0 分，分数怎样变化">
+  {rounds.map((r) => (
+    <Step caption={r.caption}>
+      <ScoreStack items={breakdown(r.stats)} max={3.1} />
+    </Step>
+  ))}
+</Stepper>
+
+第 2 轮还选 B，但领先只剩 1.999 − 1.931 ≈ 0.07。第 3 轮换成了 A。
+
+两项都在变。B 拿 0 分，平均价值从 0.9 降到 0.45 再到 0.3；B 访问多了，探索奖励从 2.146 降到 1.549 再到 1.287。A 和 C 没被访问，N 却在变大，它们的探索奖励慢慢上涨（A 从 1.239 涨到 1.287）。一个分支表现差，搜索就转向别的分支，不需要额外规则。
+
+把选孩子、加奖励的循环写出来，就是下面的 `uct_rounds`。它每轮调用原来的 `uct_pick`，只在外面加了回传这一步。
+
+<Solution slug="uct-selection" file="followup" />
+
+`uct_rounds([[3,2.0],[1,0.9],[6,4.2]], [0, 0, 0])` 返回 `[1, 1, 0]`。继续给 0 分，6 轮的选择是 `[1, 1, 0, 0, 2, 1]`：A、C 也会轮到。
+
+`c` 调大，探索奖励的分量更重，搜索更愿意去试访问少的孩子；`c = 0` 时只看平均价值，样例 2 就会选 C。
+
+## 参考
+
+- L. Kocsis, C. Szepesvári. [Bandit Based Monte-Carlo Planning](https://doi.org/10.1007/11871842_29). ECML 2006。UCT 的出处。
+- P. Auer, N. Cesa-Bianchi, P. Fischer. [Finite-time Analysis of the Multiarmed Bandit Problem](https://doi.org/10.1023/A:1013689704352). Machine Learning, 2002。探索奖励这一项来自这里的 UCB1。
+- A. Zhou 等. [Language Agent Tree Search Unifies Reasoning Acting and Planning in Language Models](https://arxiv.org/abs/2310.04406)（LATS）：用同一个公式在多条“思考 + 工具调用”分支之间选下一步。
+- 站内相关：<ProblemLink slug="beam-search-plan" />

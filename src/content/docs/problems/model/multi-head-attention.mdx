@@ -1,0 +1,233 @@
+---
+title: 把单头因果注意力改成多头
+description: 把 Q、K、V 的列平均分给 h 个头，每个头独立做因果注意力，再按头的顺序拼接并乘输出矩阵。
+sidebar:
+  label: 35. 多头因果注意力
+  order: 35
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Grid, Stepper, Step } from '~/components/viz';
+
+export const X = [[1, 0, 1, 0], [0, 1, 0, 1], [1, 1, 0, 0]];
+export const tok = ['t0', 't1', 't2'];
+export const cols = ['c0', 'c1', 'c2', 'c3'];
+export const colTones = (toneOf) => {
+  const t = {};
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) t[`${r},${c}`] = toneOf(c);
+  return t;
+};
+export const tri = (w) => w.map((row, r) => [0, 1, 2].map((c) => (c > r ? '0' : row[c])));
+export const triHeat = (w) => w.map((row, r) => [0, 1, 2].map((c) => (c > r ? null : Number(row[c]))));
+export const triTones = (warnRows = []) => {
+  const t = {};
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
+    if (c > r) t[`${r},${c}`] = 'muted';
+    else if (warnRows.includes(r)) t[`${r},${c}`] = 'warn';
+  }
+  return t;
+};
+export const W0 = [['1'], ['0.330', '0.670'], ['0.248', '0.248', '0.503']];
+export const W1 = [['1'], ['0.330', '0.670'], ['0.333', '0.333', '0.333']];
+export const Wbad = [['1'], ['0.378', '0.622'], ['0.274', '0.274', '0.452']];
+export const O0 = [['1', '0'], ['0.330', '0.670'], ['0.752', '0.752']];
+export const O1 = [['1', '0'], ['0.330', '0.670'], ['0.333', '0.333']];
+export const Obad = [['1', '0'], ['0.378', '0.622'], ['0.726', '0.726']];
+export const frames = [
+  {
+    mat: colTones((c) => (c < 2 ? 'accent' : 'soft')), w: null, o: null,
+    caption: '投影矩阵都是单位阵，Q = K = V = x。每个头宽 dh = 4 / 2 = 2：第 0 头拿 c0、c1，第 1 头拿 c2、c3。',
+  },
+  {
+    mat: colTones((c) => (c < 2 ? 'accent' : 'muted')), w: W0, o: O0, oLabel: '第 0 头输出', wLabel: '第 0 头权重',
+    caption: '第 0 头：t2 的查询 [1, 1] 与三个键的点积是 1、1、2，除以 √2 后权重 0.248、0.248、0.503，输出 ≈ [0.752, 0.752]。',
+  },
+  {
+    mat: colTones((c) => (c < 2 ? 'muted' : 'accent')), w: W1, o: O1, oLabel: '第 1 头输出', wLabel: '第 1 头权重',
+    caption: '第 1 头：t2 在 c2、c3 上是 [0, 0]，三个分数都是 0，权重各 1/3，输出 [1/3, 1/3]。',
+  },
+  {
+    mat: null, w: null, o: null, concat: true,
+    caption: '按头的顺序左右拼成 3 × 4，再乘 wo（单位阵）就是最终输出。',
+  },
+  {
+    mat: colTones((c) => (c < 2 ? 'accent' : 'muted')), w: Wbad, o: Obad, oLabel: '输出（÷√d）', wLabel: '第 0 头权重（÷√d）', warn: true,
+    caption: '错误做法：第 0 头除以 √d = 2 而不是 √2。t1 的权重变成 0.378、0.622，t2 的输出变成 [0.726, 0.726]。',
+  },
+];
+
+<ProblemMeta slug="multi-head-attention" />
+
+## 题目
+
+实现多头因果注意力 `multi_head_causal(x, wq, wk, wv, wo, heads)`：把 d 维切成 `heads` 份，每份各做一遍<ProblemLink slug="causal-attention" label="单头因果注意力" />，再拼回来。
+
+输入是 n × d 的矩阵 `x`（n 个 token，每个 d 维）、四个 d × d 的矩阵和头数 `heads`。按下面四步计算：
+
+1. 计算 `Q = x·wq`、`K = x·wk`、`V = x·wv`。
+2. 每个头的宽度 `dh = d / heads`。第 0 个头使用 Q、K、V 的第 0 到 dh − 1 列，第 1 个头使用接下来的 dh 列，依此类推。
+3. 每个头独立做因果注意力：第 i 行只看第 0 到 i 行，分数是点积除以 √dh，softmax 后对 V 加权求和，得到 n × dh 的输出。
+4. 把各头的输出按头的顺序左右拼成 n × d，再乘以 `wo` 返回。
+
+- n = 0 时返回 `[]`。
+- `heads` 不能整除 d 时，Python 抛 `ValueError`，TypeScript 抛 `RangeError`。
+- 只用列表运算，不依赖数值库。
+
+## 样例
+
+| 输入 | 输出 |
+|---|---|
+| 样例 1：<br/>`x=[[1,0],[0,1]]`，四个矩阵都是 2 × 2 单位阵，`heads=2` | 第 0 行 `[1, 0]`<br/>第 1 行 `[0.5, 0.7311]` |
+| 样例 2：<br/>`x=[[1,0,1,0],[0,1,0,1],[1,1,0,0]]`，四个矩阵都是 4 × 4 单位阵，`heads=2` | 第 0 行 `[1, 0, 1, 0]`<br/>第 1 行 `[0.3302, 0.6698, 0.3302, 0.6698]`<br/>第 2 行 `[0.7517, 0.7517, 0.3333, 0.3333]` |
+
+样例 1 的 0.7311 是 e / (1 + e)。它专门抓缩放写错：除以 √d = √2 而不是 √dh = 1，第 1 头第 1 行的分数会变成 0 和 0.707，输出成了 0.6698。
+
+## 思路
+
+按列把 Q、K、V 切给各个头，每个头用自己的列做一遍单头因果注意力（除以 √dh），输出按头的顺序拼回去。
+
+先手算样例 1。四个矩阵都是单位阵，Q = K = V = x。d = 2，h = 2，每个头 dh = 1 列。
+
+- 第 0 头只看第 0 列，两个 token 的值是 1 和 0。第 0 行只看自己，输出 1。第 1 行的查询是 0，两个分数都是 0，输出 (1 + 0) / 2 = 0.5。
+- 第 1 头只看第 1 列，值是 0 和 1。第 0 行输出 0。第 1 行的查询是 1，分数是 0 和 1，权重是 1 / (1 + e) 和 e / (1 + e)，输出 e / (1 + e) ≈ 0.7311。
+- 按头的顺序拼成 `[[1, 0], [0.5, 0.7311]]`，乘单位阵不变。
+
+样例 2 每个头有两列：
+
+<Stepper title="样例 2：按列拆成两个头，各算各的，再拼起来">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row" style="column-gap: 1.4rem">
+        {f.mat && (
+          <div>
+            <p class="viz-row-label">Q = K = V = x</p>
+            <Grid rows={X} rowHeaders={tok} colHeaders={cols} tones={f.mat} cellWidth={34} />
+          </div>
+        )}
+        {f.w && (
+          <div>
+            <p class="viz-row-label">{f.wLabel}</p>
+            <Grid rows={tri(f.w)} heat={triHeat(f.w)} tones={triTones(f.warn ? [1, 2] : [])} rowHeaders={tok} colHeaders={tok} cellWidth={56} />
+          </div>
+        )}
+        {f.o && (
+          <div>
+            <p class="viz-row-label">{f.oLabel}</p>
+            <Grid rows={f.o} tones={f.warn ? { '1,0': 'warn', '1,1': 'warn', '2,0': 'warn', '2,1': 'warn' } : {}} colHeaders={['列 0', '列 1']} cellWidth={56} />
+          </div>
+        )}
+        {f.concat && (
+          <div>
+            <p class="viz-row-label">拼接：第 0 头 | 第 1 头</p>
+            <Grid
+              rows={O0.map((r, i) => [...r, ...O1[i]])}
+              rowHeaders={tok}
+              colHeaders={cols}
+              tones={colTones((c) => (c < 2 ? 'accent' : 'soft'))}
+              cellWidth={58}
+            />
+          </div>
+        )}
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+### 为什么每个头按 √dh 缩放
+
+缩放是为了抵消“点积项数越多，数值越大”。一个头里的点积只有 dh 项，所以除以 √dh。样例 2 里 dh = 2，第 0 头 t1 的分数是 0 和 1 / √2 ≈ 0.707；错除以 √4 = 2 就成了 0 和 0.5，权重从 0.330、0.670 变成 0.378、0.622。
+
+### 为什么要拆成多个头
+
+看样例 2 的 t2：第 0 头里它和自己最像，权重 0.503 落在自己身上；第 1 头里它的查询是零向量，三个位置平分。不同的头看不同的列，能学到不同的关注方式，拼起来后由 `wo` 再混合。h 个头各算 dh 列，合起来还是 d 列，计算量不变。
+
+### PyTorch 里的 reshape 陷阱
+
+用张量写的时候，Q 的形状是 `(B, T, d)`：B 是批大小，T 是序列长度。要拆成 `(B, h, T, dh)`，正确写法是先 `view(B, T, h, dh)`，再 `transpose(1, 2)` 交换第 1、2 维。直接 `view(B, h, T, dh)` 形状一样，内容却错了。
+
+最小的例子：B = 1，T = 2，h = 2，dh = 2，d = 4。token 0 的四个数记作 a0 a1 a2 a3，token 1 的记作 b0 b1 b2 b3。张量在内存里按行连续存放：
+
+<Figure caption="`view` 只换一种方式读同一段内存，不搬数据。先 `view(B, T, h, dh)` 再交换维度，每个头拿到所有 token 的同一段列；直接 `view(B, h, T, dh)`，第 0 头拿到的全是 token 0 的数。">
+  <ArrayCells values={['a0', 'a1', 'a2', 'a3', 'b0', 'b1', 'b2', 'b3']} tones={['accent', 'accent', 'soft', 'soft', 'accent', 'accent', 'soft', 'soft']} ranges={[{ from: 0, to: 3, label: 'token 0' }, { from: 4, to: 7, label: 'token 1' }]} label="内存" cell={46} />
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">view(1,2,2,2).transpose(1,2)：正确</p>
+      <Grid
+        rows={[['a0', 'a1'], ['b0', 'b1'], ['a2', 'a3'], ['b2', 'b3']]}
+        rowHeaders={['头 0 · 位置 0', '头 0 · 位置 1', '头 1 · 位置 0', '头 1 · 位置 1']}
+        tones={{ '0,0': 'accent', '0,1': 'accent', '1,0': 'accent', '1,1': 'accent', '2,0': 'soft', '2,1': 'soft', '3,0': 'soft', '3,1': 'soft' }}
+        cellWidth={46}
+      />
+    </div>
+    <div>
+      <p class="viz-row-label">view(1,2,2,2)：错误</p>
+      <Grid
+        rows={[['a0', 'a1'], ['a2', 'a3'], ['b0', 'b1'], ['b2', 'b3']]}
+        rowHeaders={['头 0 · 位置 0', '头 0 · 位置 1', '头 1 · 位置 0', '头 1 · 位置 1']}
+        tones={{ '1,0': 'warn', '1,1': 'warn', '2,0': 'warn', '2,1': 'warn' }}
+        cellWidth={46}
+      />
+    </div>
+  </div>
+</Figure>
+
+正确读法里，第 0 头的“位置 1”是 b0 b1，即 token 1 的第 0、1 列，和本题的切法一致。错误读法里，它是 a2 a3，把 token 0 的后半截当成了 token 1。于是第 0 头只见过 token 0，第 1 头只见过 token 1，因果掩码也没了意义。形状完全正确，程序不报错，只是结果不对。
+
+`view` 按内存顺序把最后几维重新切分。`(B, T, d)` 的内存顺序是“先 token、后列”，所以切出来的维度也必须是 `(T, h, dh)` 这个顺序，切完再用 `transpose` 把 h 挪到前面。合头的时候反过来：先 `transpose(1, 2)` 回到 `(B, T, h, dh)`，因为交换后内存不再连续，要先 `contiguous()` 再 `view(B, T, d)`。
+
+本页的列表实现直接写“第 h 个头取第 `h·dh` 到 `(h+1)·dh − 1` 列”，没有这个陷阱。读张量代码时要会认出它。
+
+## 代码
+
+<Solution slug="multi-head-attention" />
+
+两个版本都自带一个 `matmul`。Python 用 `zip(*b)` 取出 b 的每一列，TypeScript 用下标 `b[r][c]` 直接读，结果相同。Python 用切片 `q[i][lo:hi]` 取一个头的列，会复制出一个小列表；TypeScript 版改成在循环里用 `lo + c` 下标访问，不复制。拼接时 Python 用 `extend`，TypeScript 用 `push(...out)`，dh 不大，展开参数没有问题。
+
+## 复杂度
+
+n 是 token 个数，d 是模型维度，h 是头数，dh = d / h。
+
+- **时间 O(n·d² + n²·d)**：四次矩阵乘法（三次投影和最后乘 `wo`）各是 n × d 乘 d × d，共 O(n·d²)。注意力部分每个头 O(n²·dh)，h 个头合计 O(n²·dh·h) = O(n²·d)，和单头一样。
+- **空间 O(n·d)**：Q、K、V 和拼接结果各占 n × d；每次只保存一行的分数和权重，额外 O(n)。
+
+## 自测：两个容易写错的地方
+
+<Aside type="caution" title="先手算，再跑代码">
+样例 1 的正确答案是 `[[1, 0], [0.5, 0.7311]]`。如果第二行第二个数是 0.6698，是缩放用了 √d 而不是 √dh。
+
+`heads = 1` 时结果应该和 <ProblemLink slug="causal-attention" label="单头因果注意力" /> 再乘 `wo` 完全一样。例如 `x = [[0, 0], [1, 1]]`、四个单位阵、`heads = 1`，答案是 `[[0, 0], [0.8044, 0.8044]]`：第 1 行分数是 0 和 2 / √2 ≈ 1.414，权重 0.196、0.804。如果和单头的结果对不上，多半是切列的起点或拼接顺序写错了。
+</Aside>
+
+本页代码对两个样例、n = 0、`heads = 1`、`heads = d`（每头一列）、`wo` 不是单位阵、一组 4 个 token、d = 6、3 个头的随机数据（与“逐头调用单头注意力再拼接”对拍），以及 `heads` 不整除 d 的输入都跑过测试。
+
+## 延伸：改成分组查询注意力（GQA），代码改哪里？
+
+推理时每个头都要缓存自己的 K、V，头越多缓存越大。GQA 让多个查询头共用同一组 K、V：h 个查询头分成 g 组，每组 h / g 个头共用一份 K、V。g 要整除 h。
+
+形状上，`wq`、`wo` 仍是 d × d，`wk`、`wv` 只需输出 g·dh 列，变成 d × (g·dh)。第 h 个查询头属于第 `h // (heads // groups)` 组，读这一组的 K、V 列。
+
+对照上面的代码，Q 的切法和拼接都不变，只有 K、V 的列起点要改：
+
+- 原来：K、V 和 Q 用同一个起点 `lo = h * dh`。
+- 现在：Q 仍从 `h * dh` 开始，K、V 从 `kv_lo = (h // (heads // groups)) * dh` 开始。
+
+两个特殊情况：g = h 时每组一个头，就是普通多头注意力；g = 1 时所有头共用一份 K、V，叫 MQA（多查询注意力）。
+
+<Solution slug="multi-head-attention" file="followup" />
+
+用样例 2 的 `x` 试一个 MQA：`heads = 2`、`groups = 1`，`wk` 取 x 的前两列、`wv` 取 x 的后两列（都是 4 × 2）。两个查询头共用同一份 K = `[[1,0],[0,1],[1,1]]` 和 V = `[[1,0],[0,1],[0,0]]`。第 1 头的 t2 查询是 [0, 0]，三个权重都是 1/3，输出是 V 三行的平均 [1/3, 1/3]；第 0 头的 t2 权重仍是 0.248、0.248、0.503，乘上新的 V 得到 [0.248, 0.248]。最终第 2 行是 `[0.2483, 0.2483, 0.3333, 0.3333]`。
+
+测试里还验证了一个等价关系：把 GQA 的每组 K、V 列复制给组内的每个查询头，拼成 d × d 的 `wk`、`wv` 交给普通多头，结果完全相同。所以 GQA 不改变计算方式，只是让几个头读同一份 K、V。
+
+KV Cache 的大小正比于 K、V 的列数，从 d 降到 g·dh = d·g / h，缩小为原来的 g / h。h = 32、g = 8 时只剩四分之一，具体能省多少显存见 <ProblemLink slug="params-and-kv-cache" />。
+
+## 参考
+
+- [Vaswani et al., Attention Is All You Need（多头注意力）](https://arxiv.org/abs/1706.03762)
+- [Ainslie et al., GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints](https://arxiv.org/abs/2305.13245)
+- [Shazeer, Fast Transformer Decoding: One Write-Head is All You Need（MQA）](https://arxiv.org/abs/1911.02150)
+- [PyTorch 文档 · Tensor.view](https://pytorch.org/docs/stable/generated/torch.Tensor.view.html)
+- 单头版本：<ProblemLink slug="causal-attention" />；KV Cache 显存估算：<ProblemLink slug="params-and-kv-cache" />

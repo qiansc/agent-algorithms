@@ -1,0 +1,159 @@
+---
+title: 工具有先后依赖，排出字典序最小的执行顺序
+description: 用入度表做拓扑排序，就绪的工具放进小顶堆，每次取编号最小的，顺带判断有没有环。
+sidebar:
+  label: 16. 字典序最小的执行顺序
+  order: 16
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Graph, ArrayCells, Stepper, Step } from '~/components/viz';
+
+export const pos = { 0: [44, 36], 1: [44, 116], 4: [44, 196], 2: [174, 116], 3: [304, 76] };
+export const edgeList = [[0, 3], [1, 2], [2, 3]];
+export function graph(f) {
+  const nodes = [0, 1, 2, 3, 4].map((v) => ({
+    id: String(v),
+    label: v,
+    x: pos[v][0],
+    y: pos[v][1],
+    sub: f.done.includes(v) ? '已执行' : `入度 ${f.missing[v]}`,
+    tone: v === f.pop ? (f.warn ? 'warn' : 'strong') : f.done.includes(v) ? 'done' : f.heap.includes(v) ? 'accent' : null,
+  }));
+  const edges = edgeList.map(([a, b]) => ({ from: String(a), to: String(b), tone: f.done.includes(a) ? 'muted' : null }));
+  return { nodes, edges };
+}
+export const frames = [
+  {
+    missing: [0, 0, 1, 2, 0], heap: [0, 1, 4], done: [], order: [], pop: null,
+    caption: '先数入度：3 是 2，2 是 1，0、1、4 是 0。入度为 0 的三个工具进堆。',
+  },
+  {
+    missing: [0, 0, 1, 1, 0], heap: [1, 4], done: [0], order: [0], pop: 0,
+    caption: '堆顶是 0，执行它。0 指向 3，3 的入度从 2 降到 1，还不能执行。',
+  },
+  {
+    missing: [0, 0, 0, 1, 0], heap: [2, 4], done: [0, 1], order: [0, 1], pop: 1,
+    caption: '堆顶是 1，执行它。2 的入度降到 0，2 进堆。堆里现在是 2 和 4。',
+  },
+  {
+    missing: [0, 0, 0, 0, 0], heap: [3, 4], done: [0, 1, 2], order: [0, 1, 2], pop: 2,
+    caption: '堆顶是 2（比 4 小），执行它。3 的入度从 1 降到 0，3 进堆。',
+  },
+  {
+    missing: [0, 0, 0, 0, 0], heap: [4], done: [0, 1, 2, 3], order: [0, 1, 2, 3], pop: 3,
+    caption: '堆顶是 3，执行它。3 没有后续工具。',
+  },
+  {
+    missing: [0, 0, 0, 0, 0], heap: [], done: [0, 1, 2, 3, 4], order: [0, 1, 2, 3, 4], pop: 4,
+    caption: '最后执行 4。堆空了，5 个工具都已执行，答案是 `[0, 1, 2, 3, 4]`。',
+  },
+  {
+    missing: [0, 0, 0, 1, 0], heap: [2], done: [0, 1, 4], order: [0, 1, 4], pop: 4, warn: true, queue: true,
+    caption: '换成先进先出的队列：取完 0 和 1，轮到的是先进队的 4，不是 2。结果 `[0, 1, 4, 2, 3]` 合法，但不是字典序最小。',
+  },
+];
+
+<ProblemMeta slug="lexicographic-tool-order" />
+
+## 题目
+
+有 n 个工具，编号 0 到 n−1，每个都要执行一次，一次只执行一个。求一个满足全部依赖的执行顺序。
+
+- 输入：n 和一组有向边，`(u, v)` 表示 u 必须在 v 之前执行。边互不重复。
+- 输出：执行顺序。合法顺序有多个时，返回**字典序最小**的：从头比，第一个不同的位置上编号小的那个更小。
+- 依赖有环时返回空列表；`n = 0` 也返回空列表。
+- 边里的编号不在 0 到 n−1 之间时，抛出 `ValueError`（TypeScript 抛 `RangeError`）。
+- n 和边数都不超过 10 万。
+
+## 样例
+
+| n | edges | 输出 |
+|---|---|---|
+| 5 | `[(0,3), (1,2), (2,3)]` | `[0, 1, 2, 3, 4]` |
+| 2 | `[(0,1), (1,0)]` | `[]` |
+| 3 | `[(2,0)]` | `[1, 2, 0]` |
+
+第一个样例专门卡普通队列。4 一开始就能执行，2 要等 1 执行完。队列按“谁先就绪”排，会得到 `[0, 1, 4, 2, 3]`。但 1 执行完时 2 已经就绪，2 < 4，所以 2 应该排在 4 前面。
+
+## 思路
+
+做法是拓扑排序，把就绪的工具放进小顶堆，每次取编号最小的执行。
+
+先给每个工具记一个数：还差几个前置工具没执行。这个数叫入度，就是指向它的边有几条。样例里 3 要等 0 和 2，入度是 2；2 要等 1，入度是 1；0、1、4 入度是 0，随时能执行。
+
+执行一个工具，就把它指向的工具入度各减 1。入度降到 0 的工具就绪了。不断取一个就绪的工具执行，直到没有可取的，这就是拓扑排序的 Kahn 算法。
+
+要字典序最小，每次就在就绪的工具里取编号最小的。就绪集合不断进新工具、取最小值，正好用**小顶堆**：堆顶总是最小元素，进堆和出堆都是 O(log V)。
+
+<Stepper title="n = 5，edges = [(0,3), (1,2), (2,3)]">
+  {frames.map((f) => {
+    const g = graph(f);
+    return (
+      <Step caption={f.caption}>
+        <Graph nodes={g.nodes} edges={g.edges} width={360} height={240} />
+        <div class="viz-row">
+          <div>
+            <p class="viz-row-label">{f.queue ? '队列（先进先出）' : '堆（左边是堆顶）'}</p>
+            <ArrayCells values={f.heap.length ? f.heap : ['']} tones={f.heap.length ? ['accent'] : ['ghost']} index={false} />
+          </div>
+          <div>
+            <p class="viz-row-label">执行顺序</p>
+            <ArrayCells values={f.order.length ? f.order : ['']} tones={f.order.length ? f.order.map((v) => (v === f.pop ? (f.warn ? 'warn' : 'strong') : 'done')) : ['ghost']} index={false} />
+          </div>
+        </div>
+      </Step>
+    );
+  })}
+</Stepper>
+
+为什么每次取最小的就对？比较两个顺序只看第一个不同的位置。前 i 位定好后，第 i+1 位只能放此刻就绪的工具。放其中最小的，这一位就不会输给别的合法顺序。先执行一个就绪工具也不会给剩下的工具加依赖，所以不会走进死路。
+
+为什么堆空了还有工具没执行就说明有环？剩下的工具入度都大于 0，都在等另一个没执行的工具。从任一个出发，沿“我在等谁”往前追，工具个数有限，一定会回到走过的工具，这就是环。样例 2 里 0 等 1、1 等 0，堆一开始就是空的，返回 `[]`。
+
+## 代码
+
+<Solution slug="lexicographic-tool-order" />
+
+Python 用标准库 `heapq`，它直接把一个列表当作小顶堆来维护。JavaScript 没有内置的堆，TypeScript 版写了一个 `MinHeap` 类：`push` 把新元素放到数组末尾再往上浮，`pop` 把末尾元素挪到堆顶再往下沉。堆里只放整数编号，比较用 `<` 就行；如果改成每轮对就绪列表排序，记得 `sort` 要传 `(a, b) => a - b`，默认排序会把 10 排在 2 前面。
+
+## 复杂度
+
+V 是工具数 n，E 是依赖边数。
+
+- **时间 O(E + V log V)**：建邻接表和入度表 O(V + E)；每个工具进堆、出堆各一次，每次 O(log V)；每条边在它的起点被执行时访问一次。
+- **空间 O(V + E)**：邻接表存所有边，入度表、堆和结果各 O(V)。
+
+## 自测：环只出现在一部分工具里
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`n = 4`，`edges = [(0,1), (1,2), (2,1)]`。正确答案是 `[]`：1 和 2 互相等待，整个计划不可能完成。如果你得到 `[0, 3]`，是忘了在最后检查执行的工具数是否等于 n。
+
+`n = 3`，`edges = [(2,0)]`。正确答案是 `[1, 2, 0]`：0 编号最小，可它要等 2。如果你得到 `[0, 1, 2]`，是没有建入度表，直接按编号排了序。
+</Aside>
+
+本页代码还测了自环、n = 0、编号越界，以及一张 40 个工具、70 条边的随机依赖图（并在它上面加一条边造出环）。所有 n ≤ 6 的随机小图都和“枚举全部排列、取第一个合法的”暴力写法对拍过。
+
+## 延伸：怎样判断合法顺序是否唯一？
+
+改一下问题：不求字典序最小，只问合法的执行顺序是不是只有一种。
+
+还是 Kahn 算法，只看每一步有几个工具可选。某一步有两个以上就绪的工具，先取哪个都行，顺序就不唯一。每一步都只有一个就绪的工具，顺序就唯一。
+
+样例 1 一开始就有 0、1、4 三个工具就绪，所以不唯一。`n = 4`、`edges = [(0,1), (1,2), (2,3)]` 是一条链，每一步只有一个候选，顺序唯一。`n = 3`、`edges = [(0,1), (1,2), (0,2)]` 也唯一：执行完 0 之后，2 还在等 1。
+
+这里不关心先取谁，普通队列就够，不需要堆。有环要单独排除：环上的工具永远不会就绪，每一步可能都只有一个候选，但根本排不完。
+
+<Solution slug="lexicographic-tool-order" file="followup" />
+
+还有一个等价的判断方法：顺序唯一，当且仅当求出的顺序里每相邻两个工具之间都有一条边。测试里用另一种方式对拍：顺序唯一，当且仅当“字典序最小”和“字典序最大”的两个顺序相同。
+
+## 参考
+
+- A. B. Kahn, [Topological sorting of large networks](https://dl.acm.org/doi/10.1145/368996.369025), Communications of the ACM, 1962
+- [力扣 210 · 课程表 II](https://leetcode.cn/problems/course-schedule-ii/)：只要求任意一个合法顺序
+- [Python 文档 · `heapq`](https://docs.python.org/3/library/heapq.html)
+- 在同一张依赖图上算并行执行的最短时间：<ProblemLink slug="parallel-finish-time" />

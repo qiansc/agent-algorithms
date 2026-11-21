@@ -1,0 +1,19 @@
+{
+  "python": "ThinkFilter",
+  "typescript": "ThinkFilter",
+  "kind": "class",
+  "cases": [
+    {"name": "样例：两个标签都被切开", "init": [], "calls": [["feed", ["Hi <th"]], ["feed", ["ink>secret</thi"]], ["feed", ["nk> there"]], ["close", []]], "expected": ["Hi ", "", " there", ""]},
+    {"name": "1 < 2 <：只留最后一个 <", "init": [], "calls": [["feed", ["1 < 2 <"]], ["close", []]], "expected": ["1 < 2 ", "<"]},
+    {"name": "结尾的 <t 不是标签，close 时原样输出", "init": [], "calls": [["feed", ["ok <t"]], ["close", []]], "expected": ["ok ", "<t"]},
+    {"name": "<thinking> 不是 <think>", "init": [], "calls": [["feed", ["<thin"]], ["feed", ["king>"]], ["close", []]], "expected": ["", "<thinking>", ""]},
+    {"name": "流结束时还在 think 里，剩下的丢掉", "init": [], "calls": [["feed", ["x<think>abc"]], ["feed", ["</th"]], ["close", []]], "expected": ["x", "", ""]},
+    {"name": "一段里有两块 think", "init": [], "calls": [["feed", ["a<think>1</think>b<think>2</think>c"]], ["close", []]], "expected": ["abc", ""]},
+    {"name": "逐字符输入", "init": [], "calls": [["feed", ["a"]], ["feed", ["<"]], ["feed", ["t"]], ["feed", ["h"]], ["feed", ["i"]], ["feed", ["n"]], ["feed", ["k"]], ["feed", [">"]], ["feed", ["b"]], ["feed", ["<"]], ["feed", ["/"]], ["feed", ["t"]], ["feed", ["h"]], ["feed", ["i"]], ["feed", ["n"]], ["feed", ["k"]], ["feed", [">"]], ["feed", ["c"]], ["close", []]], "expected": ["a", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "c", ""]},
+    {"name": "两个 < 连在一起", "init": [], "calls": [["feed", ["<"]], ["feed", ["<think>x</think>y"]], ["close", []]], "expected": ["", "<y", ""]},
+    {"name": "空输入", "init": [], "calls": [["feed", [""]], ["close", []]], "expected": ["", ""]},
+    {"name": "只调用 close", "init": [], "calls": [["close", []]], "expected": [""]},
+    {"name": "没有标签", "init": [], "calls": [["feed", ["hello "]], ["feed", ["world"]], ["close", []]], "expected": ["hello ", "world", ""]},
+    {"name": "随机文本 186 字符、切成 39 段（与整段正则结果对拍）", "init": [], "calls": [["feed", ["/k<b"]], ["feed", ["i/</t"]], ["feed", ["hink"]], ["feed", [">/b<"]], ["feed", ["<bnn"]], ["feed", ["txxkt"]], ["feed", ["<thi"]], ["feed", ["n"]], ["feed", ["k>xb<h</t"]], ["feed", ["hink> >n"]], ["feed", ["<tb"]], ["feed", ["kiht"]], ["feed", ["i "]], ["feed", ["hni>b"]], ["feed", [" a/anki"]], ["feed", ["<"]], ["feed", ["  </t"]], ["feed", ["hink>aki<"]], ["feed", ["th"]], ["feed", ["ink"]], ["feed", ["><k>ith"]], ["feed", ["hbtb"]], ["feed", ["bna>//ih"]], ["feed", ["b> t</t"]], ["feed", ["hink>ba  "]], ["feed", ["a"]], ["feed", [" <think>a"]], ["feed", [" i<th"]], ["feed", ["ink>>xna"]], ["feed", [" h"]], ["feed", ["i <"]], ["feed", ["n>k"]], ["feed", ["/tih</"]], ["feed", ["think>tx>"]], ["feed", ["bbib"]], ["feed", ["a"]], ["feed", ["<thi"]], ["feed", ["nk>>"]], ["feed", [">kn"]], ["close", []]], "expected": ["/k<b", "i/</t", "hink", ">/b", "<<bnn", "txxkt", "", "", "", " >n", "<tb", "kiht", "i ", "hni>b", " a/anki", "", "<  </t", "hink>aki", "", "", "", "", "", "", "ba  ", "a", " ", "", "", "", "", "", "", "tx>", "bbib", "a", "", "", "", ""]}
+  ]
+}

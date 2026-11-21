@@ -1,0 +1,380 @@
+/*
+ * 阅读优先的配色：中性灰阶 + 一个低饱和的青蓝强调色 + 一个柔和的琥珀色用于“易错点”。
+ * 浅色为白天阅读，深色为夜间阅读，两套都避免纯黑纯白的强对比。
+ */
+:root {
+  --sl-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif;
+  --sl-font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --sl-content-width: clamp(50rem, 50vw - 8rem, 60rem);
+  --sl-sidebar-width: 18rem;
+  --sl-text-body: 1.0625rem;
+  --sl-line-height: 1.85;
+
+  /* 深色（默认） */
+  --sl-color-accent-low: #1c3238;
+  --sl-color-accent: #5fa8b4;
+  --sl-color-accent-high: #b9dde2;
+  --sl-color-white: #e9eaec;
+  --sl-color-gray-1: #d6d8db;
+  --sl-color-gray-2: #b4b7bc;
+  --sl-color-gray-3: #8b9097;
+  --sl-color-gray-4: #5d6168;
+  --sl-color-gray-5: #3b3e44;
+  --sl-color-gray-6: #26282c;
+  --sl-color-black: #1b1c1f;
+
+  --note-warn: #d6a35c;
+  --note-warn-bg: rgba(214, 163, 92, 0.1);
+}
+
+:root[data-theme='light'] {
+  --sl-color-accent-low: #dcedef;
+  --sl-color-accent: #2f7581;
+  --sl-color-accent-high: #1d4a52;
+  --sl-color-white: #1d2024;
+  --sl-color-gray-1: #2c3036;
+  --sl-color-gray-2: #444a52;
+  --sl-color-gray-3: #6b717a;
+  --sl-color-gray-4: #9ba0a7;
+  --sl-color-gray-5: #d5d8dc;
+  --sl-color-gray-6: #eceef0;
+  --sl-color-gray-7: #f6f7f8;
+  --sl-color-black: #fcfcfb;
+
+  --note-warn: #9a6418;
+  --note-warn-bg: rgba(196, 140, 60, 0.1);
+}
+
+/* 正文排版 */
+.sl-markdown-content {
+  letter-spacing: 0.01em;
+}
+.sl-markdown-content :is(p, li) {
+  color: var(--sl-color-gray-1);
+}
+.sl-markdown-content .sl-heading-wrapper.level-h2 {
+  font-size: 1.45rem;
+}
+.sl-markdown-content .sl-heading-wrapper.level-h3 {
+  font-size: 1.15rem;
+}
+.sl-markdown-content .sl-heading-wrapper :is(h2, h3) {
+  font-size: 1em;
+}
+.sl-markdown-content h2 {
+  margin-top: 2.6rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--sl-color-gray-5);
+}
+.sl-markdown-content h3 {
+  margin-top: 1.8rem;
+}
+.sl-markdown-content .sl-heading-wrapper {
+  --sl-anchor-icon-size: 0.6em;
+}
+.sl-markdown-content strong {
+  color: var(--sl-color-white);
+  font-weight: 600;
+}
+.sl-markdown-content :not(pre) > code {
+  font-size: 0.88em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--sl-color-gray-6);
+  border: 0;
+  overflow-wrap: anywhere;
+}
+.sl-markdown-content table {
+  font-size: 0.95rem;
+}
+.sl-markdown-content blockquote {
+  border-inline-start-color: var(--sl-color-gray-4);
+  color: var(--sl-color-gray-2);
+}
+
+/* “易错点”提示改成柔和的琥珀色，不用刺眼的红 */
+.starlight-aside--caution {
+  --sl-color-asides-text-accent: var(--note-warn);
+  --sl-color-asides-border: var(--note-warn);
+  background-color: var(--note-warn-bg);
+}
+.starlight-aside--danger {
+  --sl-color-asides-text-accent: var(--note-warn);
+  --sl-color-asides-border: var(--note-warn);
+  background-color: var(--note-warn-bg);
+}
+.starlight-aside--tip,
+.starlight-aside--note {
+  --sl-color-asides-text-accent: var(--sl-color-accent);
+  --sl-color-asides-border: var(--sl-color-accent);
+  background-color: var(--sl-color-accent-low);
+}
+:root[data-theme='light'] .starlight-aside--tip,
+:root[data-theme='light'] .starlight-aside--note {
+  background-color: rgba(47, 117, 129, 0.07);
+}
+
+/* 代码语言切换标签更安静一些 */
+starlight-tabs [role='tablist'] {
+  font-size: 0.9rem;
+}
+
+/*
+ * 难度：沿用力扣“简单 / 中等 / 困难”的绿、黄、红，但降低饱和度，
+ * 只用在侧边栏的小标签和题目页的难度文字上。
+ */
+:root {
+  --level-easy: #6fb59a;
+  --level-medium: #d6a35c;
+  --level-hard: #d98276;
+}
+:root[data-theme='light'] {
+  --level-easy: #2f7d5f;
+  --level-medium: #9a6418;
+  --level-hard: #b04a3f;
+}
+.sl-badge.difficulty {
+  margin-inline-start: 0.4rem;
+  padding: 0 0.35rem;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 0.7rem;
+  font-weight: 500;
+  line-height: 1.45;
+  white-space: nowrap;
+  opacity: 0.9;
+}
+.sl-badge.difficulty-easy,
+.difficulty-text.difficulty-easy {
+  color: var(--level-easy);
+}
+.sl-badge.difficulty-medium,
+.difficulty-text.difficulty-medium {
+  color: var(--level-medium);
+}
+.sl-badge.difficulty-hard,
+.difficulty-text.difficulty-hard {
+  color: var(--level-hard);
+}
+/* 当前页高亮时，标签跟着用高亮的文字色，避免彩色叠在彩色底上 */
+a[aria-current='page'] .sl-badge.difficulty {
+  color: inherit;
+}
+.difficulty-text {
+  font-weight: 600;
+}
+
+/*
+ * 三栏布局：左侧目录固定；正文和右侧“本页内容”作为一组，在剩下的宽度里居中，
+ * “本页内容”紧跟在正文右边。屏幕再宽，多出来的空白平均分在这一组的两侧。
+ * （Starlight 默认把“本页内容”贴在屏幕最右边，宽屏上正文和它之间会空出一大块。）
+ */
+/*
+ * 三栏布局（宽屏）：
+ * - 正文左边缘离左侧目录固定 140px（首页也一样），正文右边缘到“本页内容”的分隔线也是 140px；
+ * - “本页内容”一直延伸到屏幕右边，文字离它的左边线 50px，不提前换行。
+ * 空间不够时先让正文变窄，保证“本页内容”至少有 --toc-min 宽。
+ */
+@media (min-width: 72rem) {
+  :root {
+    --content-gap: 32px;
+    --toc-min: 14rem;
+    --main-w: min(
+      calc(2 * var(--content-gap) + var(--sl-content-width)),
+      calc(100vw - var(--sl-sidebar-width) - var(--toc-min))
+    );
+  }
+  .main-pane .sl-container {
+    margin-inline: calc(var(--content-gap) - var(--sl-content-pad-x)) auto !important;
+  }
+  :root[data-has-toc] .main-pane .sl-container {
+    margin-inline: calc(var(--content-gap) - var(--sl-content-pad-x)) !important;
+  }
+  /* 首页没有“本页内容”：正文左右各留同样的距离，填满中间 */
+  :root:not([data-has-toc]) .main-pane .sl-container {
+    margin-inline: calc(var(--content-gap) - var(--sl-content-pad-x)) !important;
+    max-width: none;
+  }
+  :root[data-has-sidebar][data-has-toc] .main-pane {
+    width: var(--main-w) !important;
+    flex: none;
+  }
+  :root[data-has-toc] .right-sidebar-container {
+    width: auto !important;
+    flex: 1 1 0;
+    margin-inline-start: 0 !important;
+  }
+  :root[data-has-toc] .right-sidebar {
+    width: calc(100vw - var(--sl-sidebar-width) - var(--main-w)) !important;
+  }
+  .right-sidebar-panel {
+    padding-inline: 50px 1.5rem !important;
+  }
+  .right-sidebar-panel .sl-container {
+    width: auto !important;
+    max-width: none !important;
+  }
+}
+@media (min-width: 90rem) {
+  :root {
+    --content-gap: 140px;
+  }
+}
+@media (min-width: 100rem) {
+  :root {
+    --sl-sidebar-width: 20rem;
+  }
+}
+
+/* ---------- 完成标记 ---------- */
+:root {
+  --done-color: #6fb59a;
+  /* 实心圆，中间的勾是镂空的（透明） */
+  --done-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cdefs%3E%3Cmask id='m'%3E%3Crect width='24' height='24' fill='white'/%3E%3Cpath d='M7 12.4l3.3 3.3L17.2 8.8' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/mask%3E%3C/defs%3E%3Ccircle cx='12' cy='12' r='11' fill='white' mask='url(%23m)'/%3E%3C/svg%3E");
+}
+:root[data-theme='light'] {
+  --done-color: #2f7d5f;
+}
+.done-icon {
+  display: inline-block;
+  flex: none;
+  width: 1.05em;
+  height: 1.05em;
+  background-color: currentColor;
+  -webkit-mask: var(--done-mask) center / contain no-repeat;
+  mask: var(--done-mask) center / contain no-repeat;
+}
+/* ---------- 题目卡片：题目和样例放在一起，和解答分开 ---------- */
+.sl-markdown-content .problem-card {
+  padding: 1.6rem 1.75rem 1.75rem;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--sl-color-gray-6) 45%, transparent);
+}
+.sl-markdown-content .problem-card > :first-child,
+.sl-markdown-content .problem-card > :first-child :is(h2, h3) {
+  margin-top: 0;
+}
+.sl-markdown-content .problem-card .sl-heading-wrapper.level-h2 {
+  font-size: 0.95rem;
+}
+.sl-markdown-content .problem-card h2 {
+  padding-bottom: 0;
+  border-bottom: 0;
+  color: var(--sl-color-gray-2);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.sl-markdown-content .problem-card .sl-heading-wrapper.level-h2:not(:first-child) {
+  margin-top: 1.6rem;
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--sl-color-gray-5);
+}
+.sl-markdown-content .problem-card > * + * {
+  margin-top: 0.85rem;
+}
+.sl-markdown-content .problem-card table {
+  display: table;
+  width: 100%;
+}
+
+/* ---------- 折叠：延伸、参考，以及思路里的“为什么” ---------- */
+.sl-markdown-content details.fold {
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 10px;
+  padding: 0 1.2rem;
+}
+.sl-markdown-content details.fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 0;
+  cursor: pointer;
+  list-style: none;
+  color: var(--sl-color-white);
+}
+.sl-markdown-content details.fold > summary::-webkit-details-marker {
+  display: none;
+}
+.sl-markdown-content details.fold > summary::before {
+  content: '';
+  flex: none;
+  width: 0.9rem;
+  height: 0.9rem;
+  background-color: var(--sl-color-gray-3);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M6 3.5 10.5 8 6 12.5' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M6 3.5 10.5 8 6 12.5' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  transition: transform 0.15s ease;
+}
+.sl-markdown-content details.fold[open] > summary::before {
+  transform: rotate(90deg);
+}
+.sl-markdown-content details.fold > summary:hover::before {
+  background-color: var(--sl-color-accent);
+}
+.sl-markdown-content details.fold > summary p {
+  margin: 0;
+}
+.sl-markdown-content details.fold[open] {
+  padding-bottom: 1.1rem;
+}
+.sl-markdown-content details.fold[open] > summary {
+  margin-bottom: 0.4rem;
+  border-bottom: 1px solid var(--sl-color-gray-6);
+}
+.sl-markdown-content details.fold > :not(summary) + * {
+  margin-top: 1rem;
+}
+/* 延伸、参考：整节折叠，折叠条看起来像一个小节标题 */
+.sl-markdown-content details.fold-section {
+  margin-top: 2.6rem;
+}
+.sl-markdown-content details.fold-section > summary {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--sl-color-white);
+}
+.sl-markdown-content details.fold-section > summary::after {
+  content: '展开';
+  margin-inline-start: auto;
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--sl-color-gray-3);
+}
+.sl-markdown-content details.fold-section[open] > summary::after {
+  content: '收起';
+}
+/* 思路里的“为什么”：更轻的折叠条 */
+.sl-markdown-content details.fold-why {
+  border-style: dashed;
+  background: transparent;
+}
+.sl-markdown-content details.fold-why > summary {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+/* 上一页 / 下一页：标题不用默认的特大字号 */
+.pagination-links .link-title {
+  font-size: 1.05rem !important;
+  line-height: 1.5;
+}
+.pagination-links a {
+  padding-block: 0.8rem !important;
+}
+
+/* 左侧目录：字号略小一点，题名和难度标签尽量放在同一行；行距放宽，不显得挤 */
+.sidebar-content ul ul a {
+  font-size: 0.875rem;
+  line-height: 1.55;
+  padding-block: 0.38rem;
+  padding-inline-end: 0.25rem;
+  position: relative; /* 完成标记画在左侧竖线上，不占文字的位置 */
+}
+.sidebar-content .sl-badge.difficulty {
+  margin-inline-start: 0.3rem;
+  font-size: 0.66rem;
+  padding: 0 0.28rem;
+}

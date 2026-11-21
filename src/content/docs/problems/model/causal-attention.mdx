@@ -1,0 +1,187 @@
+---
+title: 只能看见左侧 token 的单头注意力
+description: 第 i 个 token 只和第 0 到 i 个 token 打分，缩放、softmax 后对 V 加权求和，写出单头因果注意力。
+sidebar:
+  label: 34. 单头因果注意力
+  order: 34
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Grid, Stepper, Step } from '~/components/viz';
+
+export const heads = { rows: ['q0', 'q1', 'q2'], cols: ['k0', 'k1', 'k2'] };
+export const full = [['1', '0', '0'], ['1', '1', '0'], ['0', '1', '1']];
+export const W = [['1', '', ''], ['0.5', '0.5', ''], ['0.155', '0.422', '0.422']];
+export const Wh = [[1, null, null], [0.5, 0.5, null], [0.155, 0.422, 0.422]];
+export const outs = ['3', '4.5', '6.801'];
+export const masked = (r, c) => c > r;
+export const view = (cur, upto, scoresUpto = upto) => {
+  const sTones = {};
+  const wTones = {};
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
+    if (masked(r, c)) { sTones[`${r},${c}`] = 'muted'; wTones[`${r},${c}`] = 'muted'; }
+    else if (r === cur) sTones[`${r},${c}`] = 'accent';
+  }
+  return {
+    scores: full.map((row, r) => row.map((x, c) => (masked(r, c) ? '−∞' : r <= scoresUpto ? x : ''))),
+    sTones,
+    weights: W.map((row, r) => row.map((x, c) => (masked(r, c) ? '0' : r <= upto ? x : ''))),
+    heat: Wh.map((row, r) => row.map((x, c) => (r <= upto && !masked(r, c) ? x : null))),
+    wTones,
+    outs: outs.map((x, r) => [r <= upto ? x : '']),
+    oTones: cur >= 0 ? { [`${cur},0`]: 'strong' } : {},
+  };
+};
+export const wrong = (() => {
+  const v = view(-1, 2);
+  v.scores = v.scores.map((row, r) => (r === 0 ? full[0] : row));
+  v.sTones = { ...v.sTones, '0,0': 'accent', '0,1': 'warn', '0,2': 'warn' };
+  v.weights = v.weights.map((row, r) => (r === 0 ? ['0.576', '0.212', '0.212'] : row));
+  v.heat = v.heat.map((row, r) => (r === 0 ? [0.576, null, null] : row));
+  v.wTones = { ...v.wTones, '0,1': 'warn', '0,2': 'warn' };
+  v.outs = v.outs.map((row, r) => (r === 0 ? ['1.728'] : row));
+  v.oTones = { '0,0': 'warn' };
+  return v;
+})();
+export const frames = [
+  {
+    v: view(-1, -1, 2),
+    caption: '第 i 行是 q_i 与每个 k_j 的点积除以 √4 = 2。右上角 j > i 的格子是“未来”，记成 −∞，权重是 0。',
+  },
+  {
+    v: view(0, 0),
+    caption: '第 0 行只看 k0：分数 2 / 2 = 1，权重 1，输出等于 v0 = 3。',
+  },
+  {
+    v: view(1, 1),
+    caption: '第 1 行：两个分数都是 1，权重各 0.5，输出 0.5 × 3 + 0.5 × 6 = 4.5。',
+  },
+  {
+    v: view(2, 2),
+    caption: '第 2 行：分数 0、1、1，权重约 0.155、0.422、0.422，输出 ≈ 6.801。',
+  },
+  {
+    v: wrong,
+    caption: '错误做法：第 0 行先对 1、0、0 整行 softmax，再清零未来两格。只剩权重 0.576，输出 ≈ 1.728，不是 3。',
+  },
+];
+
+<ProblemMeta slug="causal-attention" />
+
+## 题目
+
+实现单头因果注意力 `causal_attention(Q, K, V)`：第 i 个 token 只看它自己和左边的 token。
+
+`Q`、`K`、`V` 都有 n 行；`Q` 和 `K` 每行 d 个数，`V` 每行 h 个数。返回 n × h 的矩阵，第 i 行这样算：
+
+1. 用 `Q` 的第 i 行和 `K` 的第 0 到 i 行分别做点积，每个点积除以 √d，得到 i + 1 个分数。
+2. 对这 i + 1 个分数做 softmax，得到权重。
+3. 用权重对 `V` 的第 0 到 i 行加权求和。
+
+- d、h 是正整数，元素绝对值不超过 100。
+- n = 0 时返回空列表。
+- 三个数组行数不一致时，Python 抛 `ValueError`，TypeScript 抛 `RangeError`。
+
+## 样例
+
+| 输入 | 输出 |
+|---|---|
+| 样例 1：<br/>`Q=[[0], [1]]`<br/>`K=[[0], [ln 3]]`<br/>`V=[[2], [10]]` | `[[2.0], [8.0]]` |
+| 样例 2：<br/>`Q=[[1,0,0,0], [1,1,0,0], [0,1,1,0]]`<br/>`K=[[2,0,0,0], [0,2,0,0], [0,0,2,0]]`<br/>`V=[[3], [6], [9]]` | `[[3.0], [4.5], [6.8009]]` |
+
+样例 1 里的 `ln 3` 在代码里写成 `math.log(3)` 或 `Math.log(3)`。
+
+样例 1 的第 0 行防“先整行 softmax，再把未来位置清零”。第 0 行的两个分数都是 0，整行 softmax 各给 0.5。清掉未来那格后只剩 0.5，输出是 1 而不是 2。
+
+## 思路
+
+每一行只对左边的位置打分、做 softmax、给 V 加权求和。未来位置不参加 softmax。
+
+先手算样例 1。行是查询位置 i，列是被看的位置 j。
+
+- 第 0 行只能看第 0 格。只有一个分数，权重是 1，输出就是 `V[0] = 2`。
+- 第 1 行两格都能看。点积是 0 和 ln 3，d = 1，除以 √1 不变。取指数得 1 和 3，权重是 1/4 和 3/4。输出 2 × 1/4 + 10 × 3/4 = 8。
+
+样例 2 有三个 token，d = 4，每个点积除以 √4 = 2。下图左边是分数，中间是权重（颜色越深越大），右边是输出。
+
+<Stepper title="样例 2：一行一行算注意力">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div>
+          <p class="viz-row-label">分数 q·k / √d</p>
+          <Grid rows={f.v.scores} rowHeaders={heads.rows} colHeaders={heads.cols} tones={f.v.sTones} cellWidth={48} />
+        </div>
+        <div>
+          <p class="viz-row-label">权重</p>
+          <Grid rows={f.v.weights} heat={f.v.heat} tones={f.v.wTones} rowHeaders={heads.rows} colHeaders={heads.cols} cellWidth={60} />
+        </div>
+        <div>
+          <p class="viz-row-label">输出</p>
+          <Grid rows={f.v.outs} tones={f.v.oTones} colHeaders={['out']} cellWidth={62} />
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+三行权重合起来是下三角矩阵：对角线以上全是 0，每行加起来是 1。位置 i 的输出只由位置 0..i 的 V 混合而成，后面的 token 影响不到它，“因果”指的就是这个。
+
+### 未来位置怎么排除
+
+有两种写法，结果一样：
+
+- 循环只跑 `j in range(i + 1)`，未来位置根本不算分数。本页代码就是这样写的。
+- 先算出完整的 n × n 分数矩阵，再把 j > i 的格子设成 −∞，然后整行做 softmax。`exp(−∞) = 0`，这些格子的权重自然是 0，其余格子的分母里也不含它们。
+
+错的是第三种：整行 softmax 之后再把未来格子清零。样例 2 的第 0 行，分数 1、0、0 一起做 softmax，权重是 0.576、0.212、0.212。清零后只剩 0.576，加起来不是 1，输出 0.576 × 3 ≈ 1.728，正确答案是 3。
+
+### 为什么除以 √d
+
+d 维点积是 d 项相加，d 越大点积越大，softmax 会几乎只选一个位置。除以 √d 把分数拉回原来的量级。样例 2 忘了除以 2 的话，第 2 行分数变成 0、2、2，权重更集中在后两个位置。
+
+softmax 这一步照常先减去本行最大分数再取指数，原因见 <ProblemLink slug="masked-softmax" />。
+
+## 代码
+
+<Solution slug="causal-attention" />
+
+两个版本逐行对应。Python 用 `zip` 一次取出两行对应的数做点积，TypeScript 用下标循环。行内求最大值时 TypeScript 用了 `Math.max(...scores)`：一行最多 n 个分数，n 是序列长度，几千以内不会碰到参数个数的上限；序列非常长时应改成循环。
+
+## 复杂度
+
+n 是 token 个数，d 是 `Q`、`K` 每行的长度，h 是 `V` 每行的长度。
+
+- **时间 O(n²(d + h))**：第 i 行要做 i + 1 次 d 维点积，再把 i + 1 行 h 维的 V 加起来。对所有行求和是 1 + 2 + … + n = n(n + 1)/2 次，大约 n²/2。
+- **空间**：输出本身占 O(nh)。另外每次只保存一行的分数和权重，额外 O(n + h)。
+
+## 自测：两个容易写错的输入
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+样例 1：`Q = [[0], [1]], K = [[0], [ln 3]], V = [[2], [10]]`，正确答案是 `[[2.0], [8.0]]`。如果第一行得到 1，是先对整行做了 softmax 再清零未来位置。
+
+`Q = K = [[1000], [1000]], V = [[1], [3]]`，正确答案是 `[[1.0], [2.0]]`。分数是 1000 × 1000 / 1 = 10⁶，如果你得到 `nan` 或报溢出，是取指数之前没有减去本行最大值。
+</Aside>
+
+本页代码对两个样例、上面的大分数输入、n = 0、只有一个 token、一组 5 个 token 的随机数据（和“整矩阵加 −∞ 掩码”的写法对拍）以及行数不一致的输入都跑过测试。
+
+## 延伸：逐个生成 token 时，新位置还要算多少？
+
+生成第 n + 1 个 token 时，前 n 个位置的输出已经算过了。因果注意力里，旧位置的输出只依赖它左边的 token，新 token 来了也不会变，所以不用重算。
+
+新位置要算的只是自己这一行：它的查询要和 n + 1 个键（n 个旧的加上自己）打分，再把 n + 1 个值加权求和。旧位置的 K、V 每次都要用到，把它们存下来，就是常说的 **KV Cache**。
+
+下面的 `KVCache` 每来一个 token，先把它的 k、v 追加进缓存，再算这一行。用样例 2 逐个喂入三个 token，得到 3、4.5、6.801，和整矩阵一次算出的结果相同。
+
+<Solution slug="causal-attention" file="followup" />
+
+第 n + 1 步花 O((n + 1)(d + h))，也就是 O(n(d + h))，比从头重算整个矩阵的 O(n²(d + h)) 少一个 n。缓存本身占 O(n(d + h))，序列越长越大，这是长文本推理时显存的主要来源之一，估算方法见 <ProblemLink slug="params-and-kv-cache" />。这里只算注意力这一步，Q、K、V 的投影和其他网络层另计。
+
+## 参考
+
+- [Vaswani et al., Attention Is All You Need](https://arxiv.org/abs/1706.03762)
+- [《动手学深度学习》· 注意力评分函数](https://zh.d2l.ai/chapter_attention-mechanisms/attention-scoring-functions.html)
+- 多个头怎么拆：<ProblemLink slug="multi-head-attention" />；softmax 的数值稳定：<ProblemLink slug="masked-softmax" />

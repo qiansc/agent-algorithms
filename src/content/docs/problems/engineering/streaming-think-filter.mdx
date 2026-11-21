@@ -1,0 +1,221 @@
+---
+title: 流式输出里隐藏思考内容，标签可能被切开
+description: 文本一段段到达，用两状态的状态机加一个短缓冲区，隐藏 <think> 块并尽快输出其余文字。
+sidebar:
+  label: 28. 流式隐藏思考内容
+  order: 28
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Grid, Graph, Stepper, Step } from '~/components/viz';
+
+export const show = (s) => Array.from(s).map((c) => (c === ' ' ? '␣' : c));
+export const paint = (n, spans) => {
+  const t = Array(n).fill('default');
+  for (const [a, b, tone] of spans) for (let i = a; i <= b; i++) t[i] = tone;
+  return t;
+};
+export const machine = (state, edge) => ({
+  nodes: [
+    { id: 'show', label: '显示', x: 50, y: 52, shape: 'rect', w: 64, tone: state === 'show' ? 'strong' : 'default' },
+    { id: 'hide', label: '隐藏', x: 230, y: 52, shape: 'rect', w: 64, tone: state === 'hide' ? 'strong' : 'default' },
+  ],
+  edges: [
+    { from: 'show', to: 'hide', label: '<think>', bend: -26, tone: edge === 'in' ? 'accent' : 'default' },
+    { from: 'hide', to: 'show', label: '</think>', bend: -26, tone: edge === 'out' ? 'accent' : 'default' },
+  ],
+});
+export const frames = [
+  {
+    state: 'show', edge: null, buf: '', ret: '—',
+    caption: '开始时在“显示”状态，缓冲区是空的。显示状态下要找的标签是 `<think>`。',
+  },
+  {
+    state: 'show', edge: null, buf: 'Hi <th', ret: '"Hi "',
+    tones: [[0, 2, 'soft'], [3, 5, 'accent']],
+    ranges: [[0, 2, '输出', 'default'], [3, 5, '留着', 'accent']],
+    caption: '`feed("Hi <th")`：找不到完整的 `<think>`。末尾的 `<th` 是 `<think>` 的前 3 个字符，留着，返回 `"Hi "`。',
+  },
+  {
+    state: 'show', edge: null, buf: '<think>secret</thi', ret: '…',
+    tones: [[0, 2, 'accent']],
+    ranges: [[0, 2, '上次留下', 'accent'], [3, 17, '这次新到', 'default']],
+    caption: '`feed("ink>secret</thi")`：先把上次留下的 `<th` 和新到的 15 个字符拼起来，缓冲区共 18 个字符。',
+  },
+  {
+    state: 'hide', edge: 'in', buf: '<think>secret</thi', ret: '…',
+    tones: [[0, 6, 'strong']],
+    ranges: [[0, 6, '<think>', 'accent']],
+    caption: '在下标 0 找到 `<think>`，前面没有文字要输出。丢掉标签，切到“隐藏”，从下标 7 开始找 `</think>`。',
+  },
+  {
+    state: 'hide', edge: null, buf: '<think>secret</thi', ret: '""',
+    tones: [[0, 6, 'muted'], [7, 12, 'muted'], [13, 17, 'accent']],
+    ranges: [[7, 12, '丢掉', 'default'], [13, 17, '留着', 'accent']],
+    caption: '下标 7 之后找不到完整的 `</think>`。末尾的 `</thi` 是它的前 5 个字符，留着；`secret` 丢掉。返回空串。',
+  },
+  {
+    state: 'hide', edge: null, buf: '</think> there', ret: '…',
+    tones: [[0, 4, 'accent']],
+    ranges: [[0, 4, '上次留下', 'accent'], [5, 13, '这次新到', 'default']],
+    caption: '`feed("nk> there")`：拼起来是 `</think> there`，14 个字符。',
+  },
+  {
+    state: 'show', edge: 'out', buf: '</think> there', ret: '" there"',
+    tones: [[0, 7, 'muted'], [8, 13, 'soft']],
+    ranges: [[0, 7, '</think>', 'accent'], [8, 13, '输出', 'default']],
+    caption: '在下标 0 找到 `</think>`，切回“显示”。`␣there` 里没有 `<think>`，末尾的 `e` 也不是它的开头，全部输出，返回 `" there"`。',
+  },
+  {
+    state: 'show', edge: null, buf: '', ret: '""',
+    caption: '`close()`：在显示状态，缓冲区空，返回空串。四次返回值拼起来是 `"Hi  there"`。',
+  },
+];
+
+<ProblemMeta slug="streaming-think-filter" />
+
+## 题目
+
+实现一个过滤器类 `ThinkFilter`，处理模型分段返回的文本流：把 `<think>` 与 `</think>` 之间的内容连同两个标签一起隐藏，其余文本尽快输出。
+
+- `feed(chunk)`：接收新到的一段，返回此刻已能确定要输出的全部文本。只有可能拼成标签开头的字符才允许先扣住。
+- `close()`：流结束时调用一次，返回剩下应输出的文本。结束时还在 `<think>` 里面，剩下的内容丢弃。
+- 标签不嵌套，大小写必须完全一致。`<think>` 里面再出现的 `<think>` 是普通内容；外面单独出现的 `</think>` 当普通文本输出。
+- 一个标签可能被拆到两段或更多段里。`chunk` 可以是空串。
+
+## 样例
+
+| 调用 | 返回 |
+|---|---|
+| `feed("Hi <th")` | `"Hi "` |
+| `feed("ink>secret</thi")` | `""` |
+| `feed("nk> there")` | `" there"` |
+| `close()` | `""` |
+
+两个标签都被切开了：`<think>` 拆成 `<th` + `ink>`，`</think>` 拆成 `</thi` + `nk>`。
+
+| 调用 | 返回 |
+|---|---|
+| `feed("1 < 2 <")` | `"1 < 2 "` |
+| `close()` | `"<"` |
+
+第二个样例防两个错：看到 `<` 就把后面全扣住，`feed` 只返回 `"1 "`；`close()` 忘了吐出留下的 `<`，少一个字符。
+
+## 思路
+
+用一个两状态的状态机加一个缓冲区。每段接到缓冲区后面再找标签；末尾可能是标签前半截的几个字符，留到下一段。
+
+每段单独处理不行：第一段只有 `<th`，第二段只有 `ink>`，哪段都找不到 `<think>`，`secret` 会漏出去。全攒到 `close()` 再处理，结果对，但用户要等整段生成完才看到第一个字。
+
+要记住两样东西：
+
+- 状态：现在在 `<think>` 外面（显示）还是里面（隐藏）。显示状态下找 `<think>`，隐藏状态下找 `</think>`，找到就切到另一个状态。
+- 缓冲区：上一段末尾那几个还拿不准的字符。新的一段到了，先接在它后面，再一起找标签。
+
+### 留多少字符
+
+找完完整的标签以后，缓冲区末尾可能是下一个标签的前半截。拿第一段 `Hi <th` 来说，当前要找的是 `<think>`。从末尾往前看：
+
+- 末尾 1 个字符 `h`、2 个字符 `th`：都不是 `<think>` 的开头。
+- 末尾 3 个字符 `<th`：是 `<think>` 的前 3 个字符，可能是标签，留着。
+- 末尾 4 个字符 `␣<th`（`␣` 表示空格）：不是。
+
+所以留下 3 个字符，输出 `"Hi "`。规则是：**留下缓冲区末尾与目标标签开头重合的最长部分**，最多 `len(tag) - 1` 个字符。完整的标签上一步已经找出来了，不用留满。
+
+再看 `1 < 2 <`。中间那个 `<` 后面是空格，而 `<think>` 的第二个字符是 `t`，它不可能是标签，马上输出。最后一个 `<` 后面还没有字，留着。
+
+<Figure caption={'`feed("1 < 2 <")` 之后。左边是正确做法：只扣住末尾 1 个字符。右边是“见到 `<` 就停”的写法，扣住了 5 个字符，用户看到的输出停在 `"1 "`。'}>
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">正确：只留末尾的 {"<"}</p>
+      <ArrayCells values={show('1 < 2 <')} tones={paint(7, [[0, 5, 'soft'], [6, 6, 'accent']])} ranges={[{ from: 0, to: 5, label: '输出', tone: 'default' }, { from: 6, to: 6, label: '留着', tone: 'accent' }]} cell={40} />
+    </div>
+    <div style="margin-top: 0">
+      <p class="viz-row-label">错误：从第一个 {"<"} 起全扣住</p>
+      <ArrayCells values={show('1 < 2 <')} tones={paint(7, [[0, 1, 'soft'], [2, 6, 'warn']])} ranges={[{ from: 0, to: 1, label: '输出', tone: 'default' }, { from: 2, to: 6, label: '扣住', tone: 'warn' }]} cell={40} />
+    </div>
+  </div>
+</Figure>
+
+隐藏状态下也要留。第二段拼好后是 `<think>secret</thi`，末尾的 `</thi` 不会输出，但要留到下一段和 `nk>` 拼出 `</think>`，才知道隐藏到哪里结束。
+
+<Stepper title="用样例 1 走一遍：上面是状态机，下面是这一刻的缓冲区（␣ 表示空格）">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div>
+          <p class="viz-row-label">状态</p>
+          <Graph {...machine(f.state, f.edge)} />
+        </div>
+        <div style="margin-top: 0">
+          <p class="viz-row-label">这次 feed 返回</p>
+          <Grid rows={[[f.ret]]} />
+        </div>
+      </div>
+      <p class="viz-row-label" style="margin-top: 0.9rem !important">缓冲区</p>
+      {f.buf ? (
+        <ArrayCells
+          values={show(f.buf)}
+          tones={paint(f.buf.length, f.tones ?? [])}
+          ranges={(f.ranges ?? []).map(([from, to, label, tone]) => ({ from, to, label, tone }))}
+          cell={31}
+        />
+      ) : (
+        <ArrayCells values={['空']} tones={['ghost']} index={false} />
+      )}
+    </Step>
+  ))}
+</Stepper>
+
+这样输出的字符一定不属于标签。假设某个输出的字符属于一个标签：如果标签已经完整在缓冲区里，找标签那一步就找到了它；如果还没到齐，它从开头延伸到缓冲区末尾，正是被留下的那一截。反过来，留下的字符确实还可能是标签，不能更早输出。
+
+## 代码
+
+<Solution slug="streaming-think-filter" />
+
+找标签时用 `pos` 记录已经处理到哪里，`find(tag, pos)` 从这里往后找，最后只切一次字符串。如果每找到一个标签就把缓冲区切成新字符串，一段里有很多标签时会反复复制，最坏变成平方级。
+
+两个版本只有写法上的差别：Python 的 `str.find` 找不到返回 −1，TypeScript 对应 `indexOf`。JavaScript 字符串按 UTF-16 存储，如果上游按编码单元切段，一个 emoji 可能被拆到两段里。这不影响本题：标签全是 ASCII，留下的尾巴只会是 `<`、`/`、字母这类字符，切点不会落在 emoji 中间，拼起来的输出和输入里的顺序一致。
+
+## 复杂度
+
+L 是输入的总字符数，F 是 `feed` 调用次数，t 是标签长度（`</think>` 是 8）。
+
+- **时间 O(L + F·t²)**：每次 `feed` 扫一遍“上次留下的不到 t 个字符 + 新的一段”；检查末尾时最多试 t − 1 种长度，每种比较不超过 t 个字符。t 是常数，实际就是线性。
+- **空间 O(t)**：两次调用之间，缓冲区最多留 t − 1 个字符。单次 `feed` 处理时还要放下当前这一段。
+
+## 自测：结尾的半截标签
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`feed("ok <t")` 之后 `close()`，两次分别返回 `"ok "` 和 `"<t"`。`<t` 最后也没凑成标签，它是普通文字。如果 `close()` 返回空串，说明你把显示状态的残留也丢了。
+
+`feed("<thin")`、`feed("king>")`，返回 `""` 和 `"<thinking>"`。`<thinking>` 不是 `<think>`：到第 7 个字符时是 `i`，不是 `>`。如果第二次返回空串并进入了隐藏状态，多半是只比较了 `<think` 这个前缀。
+</Aside>
+
+本页代码还测了逐字符输入、一段里有两块 `<think>`、流结束时还在 `<think>` 里、连着两个 `<`，以及一段 186 个字符随机切成 39 段的文本（结果和整段一次性处理一致）。
+
+## 延伸：只输出 `<tool_call>` 里面的内容呢？
+
+反过来：模型在 `<tool_call>` 与 `</tool_call>` 之间写工具调用的参数，现在只要这部分，标签外面的文字都丢掉。
+
+状态机、缓冲区、“留下最长重合部分”的规则都不变。要改的有两处：
+
+1. 标签字符串换成 `<tool_call>` 和 `</tool_call>`。
+2. “哪个状态输出”反过来。原题在外面输出，这里在里面输出。`close()` 也跟着变：外面的残留丢掉，里面的残留输出。
+
+所以可以把这两点做成构造参数：`TagFilter(start, end, keep_inside)`。`keep_inside=False` 就是原题，`True` 就是这里的需求。代码里用一个 `_emitting()` 判断“当前状态的文本要不要输出”，就是 `inside == keep_inside`。
+
+<Solution slug="streaming-think-filter" file="followup" />
+
+`feed("查一下。<tool_")`、`feed('call>{"q": 1}</tool')`、`feed("_call>好的")`、`close()` 依次返回 `""`、`'{"q": 1}'`、`""`、`""`。第一段末尾的 `<tool_` 留着，第二段拼出完整的开始标签，里面的 `{"q": 1}` 输出，末尾的 `</tool` 留着。
+
+还有一点要和调用方说清：连续两次工具调用 `<tool_call>a</tool_call>x<tool_call>b</tool_call>` 会输出 `ab`，两段参数直接连在一起。需要分开时，可以在遇到结束标签时额外输出一个分隔符，或者改成每段结束时回调一次。
+
+## 参考
+
+- [Python 文档 · str.find](https://docs.python.org/zh-cn/3/library/stdtypes.html#str.find)
+- 字符串里找模式的经典算法：[KMP 算法（OI Wiki · 前缀函数）](https://oi-wiki.org/string/kmp/)。本题标签很短，直接比较就够了；标签很长时，“末尾与标签开头的最长重合”可以用前缀函数在线维护。
+- 同样要逐个字符判断“下一步还能接什么”的题：<ProblemLink slug="tool-name-trie" />

@@ -1,0 +1,181 @@
+---
+title: 站在二叉树右边，每层能看到谁
+description: 从右侧看二叉树，列出每一层最靠右的节点：按层遍历，每层最后弹出的就是答案。
+sidebar:
+  label: 52. 二叉树右视图
+  order: 52
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Graph, Stepper, Step } from '~/components/viz';
+
+export const pos = { A: [130, 30], B: [70, 100], C: [190, 100], D: [40, 170] };
+export const treeEdges = [['A', 'B'], ['A', 'C'], ['B', 'D']];
+export const tree = (tones, edgeTones = {}) => ({
+  nodes: Object.entries(pos).map(([id, [x, y]]) => ({ id, label: id, x, y, tone: tones[id] })),
+  edges: treeEdges.map(([from, to]) => ({ from, to, tone: edgeTones[`${from}${to}`], directed: false })),
+});
+export const frames = [
+  {
+    tones: { A: 'accent' }, queue: ['A'], qTones: ['accent'], result: [],
+    caption: '队列里只有根 `A`，它是第 0 层的全部。',
+  },
+  {
+    tones: { A: 'strong', B: 'soft', C: 'soft' }, queue: ['B', 'C'], qTones: ['soft', 'soft'], result: ['A'],
+    caption: '第 0 层：`width = 1`。弹出 `A`，先放左孩子 `B`，再放右孩子 `C`。`A` 是这层最后弹出的，写进答案。',
+  },
+  {
+    tones: { A: 'done', B: 'strong', C: 'accent', D: 'soft' }, queue: ['C', 'D'], qTones: ['accent', 'soft'], result: ['A'],
+    caption: '第 1 层：`width = 2`。弹出 `B`，放入它的左孩子 `D`。`B` 不是这层最后一个，不写答案。',
+  },
+  {
+    tones: { A: 'done', B: 'done', C: 'strong', D: 'soft' }, queue: ['D'], qTones: ['soft'], result: ['A', 'C'],
+    caption: '弹出 `C`，它没有孩子。2 个已弹够，`C` 写进答案。队列里剩下的 `D` 属于下一层。',
+  },
+  {
+    tones: { A: 'done', B: 'done', C: 'done', D: 'strong' }, queue: [], qTones: [], result: ['A', 'C', 'D'],
+    caption: '第 2 层：`width = 1`，弹出 `D`，写进答案。队列空了，结果是 `[A, C, D]`。',
+  },
+  {
+    tones: { A: 'warn', C: 'warn', D: 'accent' }, edgeTones: { AC: 'warn' }, queue: null, result: ['A', 'C'],
+    caption: '错误写法：从根一路走右孩子，走到 `C` 就停了，得到 `[A, C]`。第 2 层的 `D` 从右边看没被挡住，却被漏掉。',
+  },
+];
+export const bigTree = {
+  nodes: [
+    { id: '1', label: 1, x: 190, y: 30, tone: 'strong' },
+    { id: '2', label: 2, x: 100, y: 94 },
+    { id: '3', label: 3, x: 280, y: 94, tone: 'strong' },
+    { id: '4', label: 4, x: 50, y: 158 },
+    { id: '5', label: 5, x: 150, y: 158 },
+    { id: '6', label: 6, x: 330, y: 158, tone: 'strong' },
+    { id: '7', label: 7, x: 120, y: 222, tone: 'strong' },
+  ],
+  edges: [['1', '2'], ['1', '3'], ['2', '4'], ['2', '5'], ['3', '6'], ['5', '7']].map(([from, to]) => ({ from, to, directed: false })),
+};
+
+<ProblemMeta slug="right-side-view" />
+
+## 题目
+
+给一棵二叉树，按层从浅到深（根在第 0 层），返回每一层最靠右的节点值。也就是站在树的右侧能看到的节点。
+
+树的写法：
+
+- Python：每个节点是一个三元组 `(值, 左子树, 右子树)`，空树是 `None`。写成三项的列表也可以。
+- TypeScript：每个节点是一个三元素数组 `[值, 左子树, 右子树]`，空树是 `null`，类型是 `type Tree<T> = readonly [T, Tree<T>, Tree<T>] | null`。
+
+例如“根 `A`，左孩子 `B`，右孩子 `C`，`B` 有一个左孩子 `D`”写成：
+
+- Python：`("A", ("B", ("D", None, None), None), ("C", None, None))`
+- TypeScript：`['A', ['B', ['D', null, null], null], ['C', null, null]]`
+
+- 空树返回空列表。
+- 节点值可以重复，也可以是任意类型，原样返回。
+- 某个节点不是三项时，抛出 `ValueError`（TypeScript 里抛 `Error`）。
+
+## 样例
+
+T1 是题目里举例的那棵树，T2 画在表格下面。
+
+| 树 | 输出 | 说明 |
+|---|---|---|
+| T1 | `[A, C, D]` | 第 2 层只有挂在左边的 `D` |
+| T2 | `[1, 3, 6, 7]` | 最深一层的 `7` 在左子树里 |
+| 空树 | `[]` | |
+| 只有根 `42` | `[42]` | |
+
+T1 用来抓“一路沿右孩子往下走”的写法：它走到 `C` 就停，只得到 `[A, C]`。每层最靠右的节点不一定在右子树里。
+
+<Figure caption="T2。深色是从右边能看到的节点：每层最右的 1、3、6，以及第 3 层唯一的 7。">
+  <Graph nodes={bigTree.nodes} edges={bigTree.edges} />
+</Figure>
+
+## 思路
+
+一层一层地访问，每层从左往右排好，取最后一个。这叫按层遍历，也叫广度优先搜索（BFS），用一个先进先出的队列实现。
+
+每弹出一个节点，先放左孩子、再放右孩子。第 k 层从左往右弹出，它们的孩子也就从左往右排进第 k + 1 层。
+
+队列里相邻两层的节点是挨着的，要分清一层到哪结束。每层开始时，队列里恰好是这一层的全部节点，所以先记下队列长度 `width`，只弹 `width` 个。新放进去的孩子排在后面，留给下一轮。
+
+用 T1 走一遍。深色是刚弹出的节点，浅色带边框的是当前层还没弹出的，更浅的是已入队的下一层，灰色是处理完的。
+
+<Stepper title="按层遍历：每层只弹 width 个，最后一个就是答案">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div>
+          <p class="viz-row-label">树</p>
+          <Graph {...tree(f.tones, f.edgeTones)} />
+        </div>
+        <div>
+          {f.queue && (
+            <>
+              <p class="viz-row-label">队列（左边是队头）</p>
+              <ArrayCells values={f.queue.length ? f.queue : ['']} tones={f.queue.length ? f.qTones : ['ghost']} index={false} />
+            </>
+          )}
+          <div style={f.queue ? 'margin-top: 0.8rem' : undefined}>
+            <p class="viz-row-label">答案</p>
+            <ArrayCells values={f.result.length ? f.result : ['']} tones={f.result.length ? f.result.map(() => (f.queue ? 'default' : 'warn')) : ['ghost']} index={false} />
+          </div>
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+每层最后弹出的节点一定最靠右，和它挂在左子树还是右子树无关。`D` 是第 2 层唯一的节点，它就是第 2 层最右的。
+
+## 代码
+
+<Solution slug="right-side-view" />
+
+两种语言的差异：
+
+- Python 用 `collections.deque`，`popleft` 是 O(1)。JavaScript 数组的 `shift()` 要把后面的元素整体前移，是 O(n)，所以 TypeScript 版用“数组加头指针 `head`”模拟队列，弹出只是 `head++`。
+- 每层的宽度在 TypeScript 里先存进 `const width`。如果直接写 `for (let i = 0; i < queue.length - head; i++)`，循环条件每次都会重新计算，刚放进去的孩子也会被算进这一层。Python 的 `range(len(queue))` 只在开头求一次值，没有这个问题。
+- Python 解包 `value, left, right = ...` 遇到不是三项的节点会自己抛 `ValueError`。TypeScript 的数组解构不检查长度，少一项只会得到 `undefined`，所以显式检查了 `node.length !== 3`。
+
+## 复杂度
+
+n 是节点数，w 是最宽那一层的节点数，h 是树的层数。
+
+- **时间 O(n)**：每个节点进队一次、出队一次。
+- **空间 O(w)**：队列里最多同时有一层多一点的节点。另外答案列表有 h 项。
+
+## 自测：两个方向写反的错误
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+用 T1（`A` 的左孩子 `B`、右孩子 `C`，`B` 的左孩子 `D`），正确答案是 `[A, C, D]`。
+
+如果你得到 `[A, C]`，是只沿着右孩子往下走，漏掉了左子树里更深的层。
+
+如果你得到 `[A, B, D]`，你算出来的是左视图：要么放孩子时先放了右孩子，要么取的是每层第一个弹出的节点。两处只能改一处，同时改反就又对了。
+</Aside>
+
+本页代码对 T1、T2、空树、只有根、只往左长的链、满二叉树、值重复的树，以及一棵和暴力解对拍的 15 个节点的随机树都跑过测试。
+
+## 延伸：额外空间只允许 O(树高)，怎么办？
+
+按层遍历的队列要装下一整层。一棵 21 层的满二叉树，最后一层有 2²⁰ = 1048576 个节点，队列最多要同时放 1048576 个。可是这棵树只有 21 层。
+
+换成深度优先搜索（DFS），并且**先访问右子树、再访问左子树**。这样每一层第一次被走到时，碰到的就是这一层最靠右的节点。当前深度正好等于答案列表的长度，就说明第一次走到这一层，这一层还没有答案。
+
+在 T1 上：先到 `A`（深度 0，答案为空）记下 `A`；接着进右边的 `C`（深度 1，答案有 1 项）记下 `C`；`C` 没有孩子，回到 `B`，深度 1 已经有答案，跳过；再进 `D`（深度 2）记下 `D`。结果同样是 `[A, C, D]`。
+
+递归写起来最短，但树退化成一条 10 万层的链时，Python 默认的递归深度上限是 1000，会直接报错。下面用显式的栈：栈是后进先出，所以先压左孩子、再压右孩子，右孩子就会先弹出来。
+
+<Solution slug="right-side-view" file="followup" />
+
+时间仍是 O(n)。栈里同时存在的，是从根到当前节点这条路上每层留下的至多一个左兄弟，所以额外空间是 O(h)。同一棵 21 层的满二叉树，栈最多只有 21 项。代价是：遇到一条很长的链，h 就等于 n，这时按层遍历的队列反而只有 1 项。两种做法该选哪个，取决于树是更宽还是更深。
+
+## 参考
+
+- [力扣 199 · 二叉树的右视图](https://leetcode.cn/problems/binary-tree-right-side-view/)
+- [力扣 102 · 二叉树的层序遍历](https://leetcode.cn/problems/binary-tree-level-order-traversal/)
+- 同样用队列做按层扩展的题：<ProblemLink slug="number-of-islands" />

@@ -1,0 +1,349 @@
+/* 图示的颜色只从这几个变量取：墨色、弱化色、线条、底色、强调色、琥珀色。 */
+:root {
+  --viz-ink: var(--sl-color-gray-1);
+  --viz-muted: var(--sl-color-gray-3);
+  --viz-line: var(--sl-color-gray-4);
+  --viz-cell: var(--sl-color-gray-6);
+  --viz-cell-line: var(--sl-color-gray-5);
+  --viz-accent: var(--sl-color-accent);
+  --viz-accent-soft: var(--sl-color-accent-low);
+  --viz-on-strong: var(--sl-color-black);
+  --viz-warn: var(--note-warn);
+  --viz-warn-soft: var(--note-warn-bg);
+  --viz-done: var(--sl-color-gray-5);
+}
+:root[data-theme='light'] {
+  --viz-cell: #f3f4f5;
+  --viz-cell-line: #cfd3d8;
+  --viz-accent-soft: #dcedef;
+  --viz-on-strong: #ffffff;
+  --viz-done: #d2d7dc;
+}
+
+.viz-figure {
+  margin: 1.6rem 0;
+}
+.viz-scroll {
+  overflow-x: auto;
+  padding: 0.25rem 0;
+}
+.viz-figure figcaption {
+  margin-top: 0.4rem;
+  font-size: 0.875rem;
+  line-height: 1.7;
+  color: var(--sl-color-gray-3);
+}
+.viz-figure figcaption code,
+.stepper-caption code {
+  font-size: 0.9em;
+}
+
+svg.viz {
+  display: block;
+  max-width: none;
+  font-family: var(--sl-font);
+  font-size: 14px;
+  overflow: visible;
+}
+svg.viz text {
+  fill: var(--viz-ink);
+}
+.viz-label,
+.viz-header {
+  fill: var(--viz-muted) !important;
+  font-size: 13px;
+}
+.viz-index,
+.viz-tick text,
+.viz-sub {
+  fill: var(--viz-muted) !important;
+  font-size: 12px;
+}
+.viz-tick line {
+  stroke: var(--viz-cell-line);
+  stroke-dasharray: 2 4;
+}
+.viz-axis {
+  stroke: var(--viz-line);
+}
+
+/* 格子、节点、条形共用的状态色 */
+.viz-cell rect,
+.viz-node circle,
+.viz-node rect,
+.viz-bar rect {
+  fill: var(--viz-cell);
+  stroke: var(--viz-cell-line);
+  stroke-width: 1.2;
+}
+.viz-cell text,
+.viz-node text {
+  font-family: var(--sl-font-mono);
+  font-size: 14px;
+}
+.viz-node text.viz-sub {
+  font-family: var(--sl-font);
+}
+.viz-bar rect {
+  fill: var(--viz-line);
+  stroke: none;
+}
+.t-accent rect:not(.viz-heat),
+.t-accent circle {
+  fill: var(--viz-accent-soft);
+  stroke: var(--viz-accent);
+  stroke-width: 1.6;
+}
+.viz-bar.t-accent rect,
+.viz-bar.t-strong rect {
+  fill: var(--viz-accent);
+  stroke: none;
+}
+.t-strong rect:not(.viz-heat),
+.t-strong circle {
+  fill: var(--viz-accent);
+  stroke: var(--viz-accent);
+}
+.viz-cell.t-strong text,
+.viz-node.t-strong text:not(.viz-sub) {
+  fill: var(--viz-on-strong);
+  font-weight: 600;
+}
+.t-soft rect:not(.viz-heat),
+.t-soft circle {
+  fill: var(--viz-accent-soft);
+  stroke: var(--viz-cell-line);
+}
+.t-warn rect:not(.viz-heat),
+.t-warn circle {
+  fill: var(--viz-warn-soft);
+  stroke: var(--viz-warn);
+  stroke-width: 1.6;
+}
+.viz-bar.t-warn rect {
+  fill: var(--viz-warn);
+}
+.t-done rect:not(.viz-heat),
+.t-done circle {
+  fill: var(--viz-done);
+  stroke: var(--viz-cell-line);
+}
+.t-muted {
+  opacity: 0.38;
+}
+.t-ghost rect,
+.t-ghost circle {
+  fill: none;
+  stroke-dasharray: 4 3;
+}
+.viz-heat {
+  fill: var(--viz-accent) !important;
+  stroke: none !important;
+}
+svg.viz text.on-heat {
+  fill: var(--viz-on-strong);
+}
+
+/* 指针、区间、边 */
+.viz-pointer path,
+.viz-range path {
+  fill: none;
+  stroke: var(--viz-accent);
+  stroke-width: 1.6;
+}
+.viz-pointer text,
+.viz-range text {
+  fill: var(--viz-accent) !important;
+  font-size: 13px;
+  font-weight: 600;
+}
+.viz-pointer.t-warn path,
+.viz-range.t-warn path {
+  stroke: var(--viz-warn);
+}
+.viz-pointer.t-warn text,
+.viz-range.t-warn text {
+  fill: var(--viz-warn) !important;
+}
+.viz-pointer.t-default path,
+.viz-range.t-default path {
+  stroke: var(--viz-muted);
+}
+.viz-pointer.t-default text,
+.viz-range.t-default text {
+  fill: var(--viz-muted) !important;
+}
+.viz-edge {
+  fill: none;
+  stroke: var(--viz-line);
+  stroke-width: 1.5;
+}
+.viz-edge.dashed {
+  stroke-dasharray: 5 4;
+}
+.viz-edge.t-accent,
+.viz-edge.t-strong {
+  stroke: var(--viz-accent);
+  stroke-width: 2;
+}
+.viz-edge.t-warn {
+  stroke: var(--viz-warn);
+  stroke-width: 2;
+}
+.viz-edge.t-muted {
+  opacity: 0.35;
+}
+.viz-arrowhead {
+  fill: var(--viz-line);
+}
+.viz-arrowhead.t-accent,
+.viz-arrowhead.t-strong {
+  fill: var(--viz-accent);
+}
+.viz-arrowhead.t-warn {
+  fill: var(--viz-warn);
+}
+.viz-edge-label rect {
+  fill: var(--sl-color-bg, var(--sl-color-black));
+  stroke: none;
+}
+.viz-edge-label text {
+  font-size: 12px;
+  fill: var(--viz-muted) !important;
+}
+.viz-edge-label.t-accent text {
+  fill: var(--viz-accent) !important;
+}
+.viz-edge-label.t-warn text {
+  fill: var(--viz-warn) !important;
+}
+.viz-mark line {
+  stroke: var(--viz-warn);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+.viz-mark text {
+  fill: var(--viz-warn) !important;
+  font-size: 12px;
+}
+.viz-mark.t-accent line {
+  stroke: var(--viz-accent);
+}
+.viz-mark.t-accent text {
+  fill: var(--viz-accent) !important;
+}
+.viz-bar-value {
+  font-size: 12px;
+  font-family: var(--sl-font-mono);
+}
+
+/* 分步播放器 */
+.stepper {
+  display: block;
+  margin: 1.8rem 0;
+  padding: 1rem 1.1rem 0.8rem;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 10px;
+  outline: none;
+}
+.stepper:focus-visible {
+  border-color: var(--sl-color-accent);
+}
+.stepper-title {
+  margin: 0 0 0.6rem !important;
+  font-size: 0.875rem;
+  color: var(--sl-color-gray-3) !important;
+}
+.stepper-frames {
+  display: grid;
+}
+algo-stepper:defined .stepper-step {
+  grid-area: 1 / 1;
+  visibility: hidden;
+}
+algo-stepper:defined .stepper-step.is-active {
+  visibility: visible;
+  animation: stepper-in 0.28s ease-out;
+}
+algo-stepper:not(:defined) .stepper-step + .stepper-step {
+  margin-top: 1.2rem;
+}
+.stepper-visual {
+  overflow-x: auto;
+}
+.stepper-caption {
+  margin: 0.7rem 0 0 !important;
+  font-size: 0.95rem;
+  line-height: 1.75;
+  min-height: 3.5em;
+}
+.stepper-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--sl-color-gray-6);
+  font-size: 0.875rem;
+}
+.stepper-bar button {
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--sl-color-gray-1);
+  font: inherit;
+  cursor: pointer;
+}
+.stepper-bar button:hover:not(:disabled) {
+  border-color: var(--sl-color-accent);
+  color: var(--sl-color-accent);
+}
+.stepper-bar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.stepper-play {
+  margin-inline-start: auto;
+}
+.stepper-count {
+  min-width: 3.5em;
+  text-align: center;
+  color: var(--sl-color-gray-3);
+  font-variant-numeric: tabular-nums;
+}
+@keyframes stepper-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  algo-stepper:defined .stepper-step.is-active {
+    animation: none;
+  }
+}
+
+/* 一帧里并排放两张图，例如“字符串 + 记录表” */
+.viz-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1.2rem 2.4rem;
+}
+.viz-row > * {
+  margin-top: 0 !important;
+}
+.viz-row-label {
+  margin: 0 0 0.3rem !important;
+  font-size: 0.8rem;
+  color: var(--sl-color-gray-3) !important;
+}
+
+/* 实心节点里的副标题也要看得清 */
+svg.viz .viz-node.t-strong text.viz-sub.inside {
+  fill: var(--viz-on-strong) !important;
+  opacity: 0.85;
+}

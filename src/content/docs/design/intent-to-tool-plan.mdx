@@ -1,0 +1,262 @@
+---
+title: 从一句话到工具调用计划
+description: 把“和上周五那单一样，再加一杯冰美式”拆成意图、槽位和一张可并发执行的工具调用 DAG，并决定什么时候该问用户。
+sidebar:
+  label: 设计 1. 从一句话到工具调用计划
+  order: 1
+---
+
+import ProblemLink from '~/components/ProblemLink.astro';
+import DesignLink from '~/components/DesignLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Graph, Lanes, Stepper, Step } from '~/components/viz';
+
+export const pos = {
+  s1: [70, 115], s2: [220, 40], s3: [220, 115], s4: [220, 190], s5: [370, 78], s6: [515, 140],
+};
+export const info = {
+  s1: ['find_order', '300 ms'], s2: ['get_store', '200 ms'], s3: ['get_menu', '400 ms'],
+  s4: ['estimate_eta', '250 ms'], s5: ['cart_add', '150 ms'], s6: ['price_quote', '200 ms'],
+};
+export const deps = [['s1', 's2'], ['s1', 's3'], ['s1', 's4'], ['s2', 's5'], ['s3', 's5'], ['s4', 's6'], ['s5', 's6']];
+export const span = { s1: [0, 300], s2: [300, 500], s3: [300, 700], s4: [300, 550], s5: [700, 850], s6: [850, 1050] };
+export const toneOf = { done: 'done', running: 'strong', pending: 'default', skipped: 'muted', failed: 'warn' };
+export const dagNodes = (st) => Object.keys(pos).map((id) => ({
+  id, label: info[id][0], sub: info[id][1], x: pos[id][0], y: pos[id][1], shape: 'rect', w: 130, tone: toneOf[st[id]],
+}));
+export const dagEdges = (st) => deps.map(([a, b]) => ({ from: a, to: b, tone: st[a] === 'done' ? 'done' : 'default' }));
+export const laneItems = (st, now) => Object.keys(span).map((id) => ({
+  label: id,
+  items: st[id] === 'done'
+    ? [{ start: span[id][0], end: span[id][1], tone: 'done', label: id }]
+    : st[id] === 'running'
+      ? [{ start: span[id][0], end: span[id][1], tone: 'ghost', label: '运行中' }]
+      : [],
+}));
+export const frames = [
+  { now: 0, st: { s1: 'running', s2: 'pending', s3: 'pending', s4: 'pending', s5: 'pending', s6: 'pending' },
+    caption: '0 ms：只有 `s1` 没有依赖，先跑。它按日期 2026-11-13 找出上周五那单，后面每一步都要用它返回的 `store_id` 和地址。' },
+  { now: 300, st: { s1: 'done', s2: 'running', s3: 'running', s4: 'running', s5: 'pending', s6: 'pending' },
+    caption: '300 ms：`s1` 返回。`s2`、`s3`、`s4` 只依赖 `s1`，三个同时发出。' },
+  { now: 500, st: { s1: 'done', s2: 'done', s3: 'running', s4: 'running', s5: 'pending', s6: 'pending' },
+    caption: '500 ms：`s2` 先回来，门店营业中。`s5` 还在等菜单 `s3`。' },
+  { now: 550, st: { s1: 'done', s2: 'done', s3: 'running', s4: 'done', s5: 'pending', s6: 'pending' },
+    caption: '550 ms：`s4` 回来，预计 24 分钟送达，满足“半小时内”。`s6` 还在等 `s5`。' },
+  { now: 700, st: { s1: 'done', s2: 'done', s3: 'done', s4: 'done', s5: 'running', s6: 'pending' },
+    caption: '700 ms：菜单到了，`s5` 开始加购：原单的两样菜，加上菜单里查到的冰美式。' },
+  { now: 850, st: { s1: 'done', s2: 'done', s3: 'done', s4: 'done', s5: 'done', s6: 'running' },
+    caption: '850 ms：购物车就绪，`s6` 按地址和购物车算价、用券。' },
+  { now: 1050, st: { s1: 'done', s2: 'done', s3: 'done', s4: 'done', s5: 'done', s6: 'done' },
+    caption: '1050 ms：全部完成，结果交回去生成确认卡。串行执行要 300 + 200 + 400 + 250 + 150 + 200 = 1500 ms。' },
+];
+
+用户周四 11:40 打开点餐助手，输入：“和上周五那单一样，再加一杯冰美式，半小时内送到”。
+
+助手能用的工具有：查历史订单、搜索门店、读菜单、查门店状态、估送达时间、改购物车、算价用券、下单、支付、查配送。这句话里有一个要先查出来的订单、一件新加的商品和一个时间约束，却没有一个词直接对应某个工具。
+
+这一页讲怎样把这句话变成一份能执行的工具调用计划，以及哪些地方不该猜、要问。
+
+## 题目
+
+设计点餐助手里“理解请求并生成工具调用计划”这一层。
+
+- 输入：用户的一句话；当前会话状态（购物车、地址等）；可用工具的列表和参数说明。
+- 输出：一个追问，或一份工具调用计划。计划执行完，停在一张等用户确认的订单卡上。
+- 用户等待的时间尽量短。
+- 下单、支付这类不可逆操作不能在计划里自动执行。
+- 模型生成的计划可能有错，执行前要能拦下。
+
+方案要回答：意图和槽位长什么样；用哪些工具，谁依赖谁，哪些能并发；计划用什么结构表示，谁来校验；什么时候问用户，什么时候用默认值。
+
+## 先想清楚的几件事
+
+### 一句话里有几件事？
+
+三件：复购一个历史订单、追加一件商品、一个送达时间约束。它们不是三个独立任务：冰美式默认和原单从同一家店出，时间约束要对合并后的整单检查。
+
+### “上周五”指哪天？
+
+2026-11-13。今天是 2026-11-19（周四）。
+
+换算由代码做，不交给模型。模型只把“上周五”这几个字抽出来，代码按当前时区和日历算出日期，写进槽位。
+
+### 一步一步走（ReAct 式），还是先出整份计划？
+
+先出整份计划，再由代码并发执行。
+
+一步一步走，是模型每调一个工具就重新想一次下一步。这个请求要调 6 次工具，就是 6 轮模型推理串在一起，每轮光等模型就要几百毫秒到一两秒。而这里谁依赖谁，看到请求时就基本定了，没必要边走边想。计划中途出错，再回到模型重新规划，见<DesignLink slug="out-of-stock-fallback" />。
+
+### 哪些事不交给模型？
+
+日期换算、计划合法性检查、并发调度、超时重试、金额计算，都用代码做。模型只做两件它擅长的事：把自然语言变成结构化的意图，以及按工具说明挑工具、填参数。
+
+### 计划停在哪里？
+
+停在确认卡。计划里只允许查询类和购物车类工具，`place_order` 和 `pay` 出现就拒绝执行。下单要等用户在确认卡上点按钮，见<DesignLink slug="confirm-before-payment" />。
+
+## 参考方案
+
+流程分五步：解析意图和槽位、检查槽位齐不齐、生成计划、校验计划、执行计划。模型只参与第一步和第三步，其余都是代码。
+
+有两条回头路。槽位缺了就问用户，用户回答后重新解析。计划校验不过，就把错误信息交回模型重新生成，最多两次；还不过，就告诉用户做不到。
+
+<Figure caption="从一句话到确认卡。实线是正常路径，虚线是回头路。">
+  <Graph
+    nodes={[
+      { id: 'u', label: '一句话', x: 45, y: 40, shape: 'rect', w: 80 },
+      { id: 'p', label: '解析意图', sub: '模型', x: 165, y: 40, shape: 'rect', w: 100 },
+      { id: 'c', label: '槽位齐了？', sub: '代码', x: 290, y: 40, shape: 'rect', w: 110 },
+      { id: 'g', label: '生成计划', sub: '模型', x: 415, y: 40, shape: 'rect', w: 100 },
+      { id: 'v', label: '校验计划', sub: '代码', x: 540, y: 40, shape: 'rect', w: 100 },
+      { id: 'q', label: '追问用户', x: 290, y: 160, shape: 'rect', w: 100, tone: 'accent' },
+      { id: 'x', label: '并发执行', sub: '代码', x: 540, y: 160, shape: 'rect', w: 100 },
+      { id: 'k', label: '确认卡', sub: '等用户点确认', x: 415, y: 160, shape: 'rect', w: 110, tone: 'soft' },
+    ]}
+    edges={[
+      { from: 'u', to: 'p' },
+      { from: 'p', to: 'c' },
+      { from: 'c', to: 'g', label: '齐' },
+      { from: 'g', to: 'v' },
+      { from: 'c', to: 'q', label: '缺' },
+      { from: 'q', to: 'p', dashed: true, label: '回答', bend: -30 },
+      { from: 'v', to: 'g', dashed: true, label: '重生成', bend: 30 },
+      { from: 'v', to: 'x', label: '通过' },
+      { from: 'x', to: 'k' },
+    ]}
+  />
+</Figure>
+
+解析出来的意图是一段结构化数据，不是一句改写过的话。下面是这个请求的解析结果：
+
+```json
+{
+  "intent": "reorder",
+  "base_order": { "said": "上周五", "date": "2026-11-13" },
+  "add_items": [
+    { "name": "冰美式", "qty": 1, "temperature": "冰", "size": null }
+  ],
+  "deadline": { "said": "半小时内", "max_minutes": 30 },
+  "address": { "from": "base_order" }
+}
+```
+
+`size` 是 `null`：用户没说杯型。这个空不会触发追问，原因见“关键细节”。
+
+接着模型按工具说明生成计划。计划是一张有向无环图（DAG）：每一步是一个节点，`after` 列出它要等的步骤。参数里用 `$s1.store_id` 这种写法引用上游结果。`after` 由代码从这些引用推出来，不让模型另写一遍，免得两处对不上。
+
+```json
+[
+  { "id": "s1", "tool": "find_order",
+    "args": { "date": "2026-11-13" } },
+  { "id": "s2", "tool": "get_store",
+    "args": { "store_id": "$s1.store_id" } },
+  { "id": "s3", "tool": "get_menu",
+    "args": { "store_id": "$s1.store_id" } },
+  { "id": "s4", "tool": "estimate_eta",
+    "args": { "store_id": "$s1.store_id",
+              "address_id": "$s1.address_id" } },
+  { "id": "s5", "tool": "cart_add",
+    "args": { "items": "$s1.items",
+              "add": { "name": "冰美式", "menu": "$s3" },
+              "store_open": "$s2.open" } },
+  { "id": "s6", "tool": "price_quote",
+    "args": { "cart_id": "$s5.cart_id",
+              "address_id": "$s1.address_id", "eta": "$s4" } }
+]
+```
+
+`s5` 引用了 `s2` 和 `s3`：门店关着就不该加购，菜单没到就不知道冰美式的商品 id。`s6` 引用了 `s4` 和 `s5`：配送费和满减要看地址和购物车。下面的动画按测试数据里的耗时执行这张图。
+
+<Stepper title="执行器按依赖并发执行这张计划（耗时取自测试数据）">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <Graph nodes={dagNodes(f.st)} edges={dagEdges(f.st)} />
+      <Lanes
+        lanes={laneItems(f.st, f.now)}
+        from={0}
+        to={1100}
+        scale={0.5}
+        ticks={[0, 300, 500, 700, 850, 1050]}
+        marks={[{ at: f.now, label: `${f.now} ms`, tone: 'accent' }]}
+      />
+    </Step>
+  ))}
+</Stepper>
+
+总耗时 1050 ms，比串行少 450 ms，省下的就是 `s2`、`s3`、`s4` 三步重叠的那段。关键路径是 `s1 → s3 → s5 → s6`，300 + 400 + 150 + 200 = 1050。菜单接口慢，整张计划就慢，优化时先看这条路径。
+
+执行器的代码如下。它先校验计划：id 不重复、依赖存在、没有环、不含不可逆工具。然后用模拟时钟调度，每个时刻做三件事：
+
+1. 上游失败的步骤标成跳过。
+2. 按计划顺序，把空出来的并发位分给已就绪的步骤。
+3. 时钟拨到最早结束的那一步。
+
+<Solution slug="design-intent-to-tool-plan" />
+
+把并发上限从 6 降到 2，结果仍是 1050 ms。300 ms 时 `s2`、`s3` 占满两个位置，`s4` 要等 500 ms `s2` 结束才开始，750 ms 结束。这仍早于 `s5` 结束的 850 ms，所以 `s4` 不在关键路径上。降到 1 就是串行，1500 ms。并发调度本身的细节见 <ProblemLink slug="parallel-finish-time" /> 和 <ProblemLink slug="concurrency-limited-calls" />。
+
+两种语言的差异只有一处：Python 的 `max(end.values(), default=0)` 在 TypeScript 里要先判空，因为 `Math.max()` 对空数组返回 `-Infinity`。
+
+## 关键细节
+
+### 什么时候问，什么时候用默认值
+
+只看一条：猜错了，用户能不能在确认卡上一眼看出来、一下改掉。能，就用默认值往下走，并把默认值写在卡上；不能，就先问。
+
+| 槽位 | 情况 | 处理 | 理由 |
+|---|---|---|---|
+| 上周五的订单 | 那天有 12:10 和 19:40 两单 | 问：“上周五你点了两单，是中午绿碗轻食那单，还是晚上的麻辣香锅？” | 两单菜品、门店都不同，猜错整张计划都白跑 |
+| 上周五的订单 | 那天只有一单 | 直接用 | 没有歧义 |
+| 冰美式规格 | 没说大小杯 | 用门店默认的中杯，卡上写明“中杯 ¥15” | 卡上一眼能看到，改起来一下 |
+| 半小时内 | 预计 38 分钟 | 问：“最快 38 分钟送到，比你说的晚 8 分钟，还点吗？” | 这是用户明说的硬约束，不能静默放宽 |
+| 地址 | 原单送到公司，现在定位在家 | 用原单地址，卡上把地址标出来 | 复购场景下原地址更可能对，但要让用户看到 |
+
+一次只问一件事，并给出选项，让用户点一下就能答。连问三个问题，用户多半只回答第一个。
+
+### 模型可能写错计划，校验由代码做
+
+常见的错有三种：
+- 引用了不存在的步骤（`$s7.cart_id`）。
+- 漏了依赖，把 `cart_add` 和 `get_menu` 并发，结果用了模型自己编的商品 id。
+- 把 `place_order` 塞进计划。
+
+前两种由依赖校验拦下，第三种由不可逆工具名单拦下。校验的错误信息原样交回模型，例如 `s5: unknown dependency s7`。只说“计划不合法”，模型很难一次改对。
+
+### 参数也要校验
+
+工具定义里写清参数的类型和取值范围（例如 JSON Schema），执行前逐个检查。`qty` 是 `-1`，或 `date` 是 `"上周五"` 这种没换算的字符串，都要在发请求前拦下。
+
+### 计划要能被人读懂
+
+每一步保留模型给的一句理由，例如 `s4: "用户要求 30 分钟内送达，需要先估时间"`。出问题时排查日志靠的就是这句话。
+
+## 常见的坑
+
+<Aside type="caution" title="这几处最容易出事">
+**让模型直接换算日期。** 模型不知道今天是几号，或者把“上周五”算成本周五。日期、时区、金额一律代码算。
+
+**把 `place_order` 放进自动计划。** 计划看起来很完整，一路执行到底就下单了。不可逆操作必须由用户在确认卡上触发，计划执行器层面直接拒绝。
+
+**每个空槽位都追问。** 用户说“老样子”，助手连问规格、温度、甜度、餐具。能放在确认卡上让用户改的，就别问。
+
+**静默放宽硬约束。** 送达要 38 分钟，助手照样生成确认卡，只在角落写一行预计时间。用户说了“半小时内”，超时就该先问。
+</Aside>
+
+## 延伸：门店闭店了，计划还要往下跑吗？
+
+把测试里的 `s2` 改成失败（门店 11:30 临时闭店），执行结果是：`s2` 在 500 ms 失败，依赖它的 `s5` 被标成跳过，`s6` 依赖 `s5`，也跳过。`s3` 和 `s4` 已经在跑，执行器等它们结束，总耗时变成 700 ms（`s3` 的结束时间）。
+
+这里白跑了一次菜单查询和一次估时，换来的是正常情况下省 450 ms。闭店很少见，这笔交换划算。如果某个上游步骤常失败，下游调用又贵（例如按次计费的第三方接口），就改成串行：让 `s3` 也依赖 `s2`，用时间换调用次数。
+
+执行器还可以在 `s2` 失败时直接取消正在跑的 `s3` 和 `s4`，不必等它们返回。取消只对查询类请求安全；`cart_add` 这种会改状态的请求一旦发出，取消掉本地的等待不等于服务端没执行，要按<DesignLink slug="confirm-before-payment" />里的方法查清结果。
+
+跳过之后不是把错误直接甩给用户，而是带着失败原因回到模型重新规划：换一家有同款的门店，或者问用户要不要等 14:00 重新营业。这部分见<DesignLink slug="out-of-stock-fallback" />。
+
+## 参考
+
+- Yao et al. [ReAct: Synergizing Reasoning and Acting in Language Models](https://arxiv.org/abs/2210.03629). arXiv:2210.03629。一步推理、一步行动的循环。
+- Kim et al. [An LLM Compiler for Parallel Function Calling](https://arxiv.org/abs/2312.04511). arXiv:2312.04511。先生成带依赖的调用计划，再并发执行。
+- Schick et al. [Toolformer: Language Models Can Teach Themselves to Use Tools](https://arxiv.org/abs/2302.04761). arXiv:2302.04761。
+- OpenAI 文档：[Function calling](https://platform.openai.com/docs/guides/function-calling)。工具定义、参数 Schema 和并行工具调用。
+- 站内相关题目：<ProblemLink slug="parallel-finish-time" />、<ProblemLink slug="concurrency-limited-calls" />、<ProblemLink slug="lexicographic-tool-order" />

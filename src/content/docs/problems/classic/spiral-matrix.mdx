@@ -1,0 +1,173 @@
+---
+title: 按顺时针读出矩阵
+description: 把矩形二维列表按顺时针绕圈读成一维列表，用四条收缩的边界保证每格只读一次。
+sidebar:
+  label: 51. 按顺时针读出矩阵
+  order: 51
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { ArrayCells, Grid, Stepper, Step } from '~/components/viz';
+
+export const M = [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]];
+export const steps = [
+  {
+    now: [], b: [0, 2, 0, 3],
+    caption: '一开始都没读过：`top = 0`、`bottom = 2`、`left = 0`、`right = 3`，框住 3 行 4 列。',
+  },
+  {
+    now: [[0, 0], [0, 1], [0, 2], [0, 3]], b: [1, 2, 0, 3],
+    caption: '顶行从 `left` 读到 `right`：1、2、3、4。`top` 从 0 下移到 1。',
+  },
+  {
+    now: [[1, 3], [2, 3]], b: [1, 2, 0, 2],
+    caption: '右列从 `top = 1` 读到 `bottom = 2`：8、12。4 已经读过，所以从第 1 行开始。`right` 从 3 左移到 2。',
+  },
+  {
+    now: [[2, 2], [2, 1], [2, 0]], b: [1, 1, 0, 2],
+    caption: '`top = 1 ≤ bottom = 2`，读底行。从 `right = 2` 往左读到 `left = 0`：11、10、9。`bottom` 从 2 上移到 1。',
+  },
+  {
+    now: [[1, 0]], b: [1, 1, 1, 2],
+    caption: '`left = 0 ≤ right = 2`，读左列。从 `bottom = 1` 往上读到 `top = 1`，只有 5。`left` 从 0 右移到 1。外圈读完。',
+  },
+  {
+    now: [[1, 1], [1, 2]], b: [2, 1, 1, 2],
+    caption: '第二圈只剩一行：第 1 行的 6、7。读完顶行，`top` 变成 2，越过了 `bottom = 1`。',
+  },
+  {
+    now: [], b: [2, 1, 2, 1],
+    caption: '右列从 `top = 2` 读到 `bottom = 1`，没有格子，`right` 变成 1。2 ≤ 1 不成立，跳过底行。左列也是空的，`left` 变成 2。循环结束，12 个数都读到了。',
+  },
+  {
+    now: [], warn: [[1, 1]], b: [2, 1, 1, 1],
+    caption: '错误写法：省掉底行前的检查。此时 `top = 2`、`bottom = 1`、`left = right = 1`，底行照样执行：在第 1 行从列 1 读到列 1，把 6 又读一遍，输出变成 13 个数。',
+  },
+];
+export const key = ([r, c]) => `${r},${c}`;
+export const frames = steps.map((s, i) => {
+  const before = steps.slice(0, i).flatMap((p) => p.now);
+  const order = [...before, ...s.now].map(([r, c]) => M[r][c]);
+  const [top, bottom, left, right] = s.b;
+  const tones = {};
+  for (let r = top; r <= bottom; r++) for (let c = left; c <= right; c++) tones[key([r, c])] = 'accent';
+  before.forEach((p) => (tones[key(p)] = 'done'));
+  s.now.forEach((p) => (tones[key(p)] = 'strong'));
+  (s.warn ?? []).forEach((p) => (tones[key(p)] = 'warn'));
+  const label = (i, a, na, b, nb) => [a === i ? na : '', b === i ? nb : ''].filter(Boolean).join(' ');
+  const values = [...order, ...(s.warn ?? []).map(([r, c]) => M[r][c])];
+  const outTones = values.map((_, j) =>
+    j >= order.length ? 'warn' : j >= before.length ? 'strong' : 'default');
+  return {
+    caption: s.caption, tones, values, outTones,
+    rowHeaders: M.map((_, r) => label(r, top, 'top', bottom, 'bottom')),
+    colHeaders: M[0].map((_, c) => label(c, left, 'left', right, 'right')),
+  };
+});
+
+<ProblemMeta slug="spiral-matrix" />
+
+## 题目
+
+给一个 m 行 n 列的整数矩阵 `matrix`，从左上角出发，按顺时针一圈圈往里读，返回读出的一维列表。
+
+- 每圈的顺序是向右、向下、向左、向上。
+- 空矩阵 `[]`、只有空行的 `[[]]` 都返回 `[]`。
+- 单行、单列都合法。
+- 各行长度不一致的输入不是矩形，抛出 `ValueError`（TypeScript 里抛 `Error`）。
+
+## 样例
+
+| 输入 | 输出 | 说明 |
+|---|---|---|
+| `[[2,4],[6,8],[1,3]]` | `[2,4,8,3,1,6]` | 3 行 2 列，一圈就读完 |
+| `[[1,2,3,4],[5,6,7,8],[9,10,11,12]]` | `[1,2,3,4,8,12,11,10,9,5,6,7]` | 外圈读完后，中间只剩一行 `6 7` |
+| `[[1,2,3]]` | `[1,2,3]` | 只有一行 |
+| `[]` | `[]` | 空矩阵 |
+
+第二个样例用来抓一个错误：外圈读完后只剩一行 `6 7`，读完就该停。常见的错误写法会接着向左读底行，把 6 再读一遍，得到 13 个数。
+
+## 思路
+
+用四个变量框住还没读的矩形，每读完一条边，就把这条边往里收一格。读底行和左列之前，各检查一次矩形是不是已经空了。
+
+顺时针读的时候，没读过的部分始终是一个矩形。所以不用记哪些格子读过，只记它的四条边：
+
+- `top`、`bottom`：还没读的最上一行和最下一行。
+- `left`、`right`：还没读的最左一列和最右一列。
+
+一圈分四段：读完顶行 `top` 加 1，读完右列 `right` 减 1，读完底行 `bottom` 减 1，读完左列 `left` 加 1。`top ≤ bottom` 且 `left ≤ right` 时，矩形还没读空。
+
+用第二个样例走一遍。深色是这一步刚读的，浅色是还没读的矩形，灰色是早先读过的。表头标出四条边当前的位置。
+
+<Stepper title="3 行 4 列的矩阵，边界一圈圈往里收">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <div>
+        <div>
+          <p class="viz-row-label">矩阵和四条边界</p>
+          <Grid rows={M} tones={f.tones} rowHeaders={f.rowHeaders} colHeaders={f.colHeaders} corner={' '.repeat(13)} cellWidth={64} />
+        </div>
+        <div style="margin-top: 0.8rem">
+          <p class="viz-row-label">已经读出的序列</p>
+          <ArrayCells values={f.values.length ? f.values : ['']} tones={f.values.length ? f.outTones : ['ghost']} index={false} cell={34} />
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+顶行和右列前面不用检查。进入循环时已经确认 `top ≤ bottom`、`left ≤ right`，顶行一定有数可读。右列就算是空的（`top` 已越过 `bottom`），`range(top, bottom + 1)` 也只是一次不执行。
+
+底行要检查。它倒着读 `bottom` 这一行。读完顶行后如果 `top > bottom`，剩下的那行就是刚读过的顶行，`bottom` 还指着它。第 6、7 帧就是这样：`top = 2`、`bottom = 1`，第 1 行已经读过。左列同理：读完右列后如果 `left > right`，剩下那列已经被右列读过。
+
+这两句检查只在最后剩一行或一列时起作用。第一个样例 3 行 2 列，一圈正好读完，用它测不出这个错误。
+
+## 代码
+
+<Solution slug="spiral-matrix" />
+
+两种语言逐行对应。Python 的 `range(right, left - 1, -1)` 是“从 `right` 倒数到 `left`，包含 `left`”，终点要写成 `left - 1`；TypeScript 用倒序 `for` 循环写 `c >= left`，同一个意思，少一个容易写错的减 1。
+
+## 复杂度
+
+m 是行数，n 是列数。
+
+- **时间 O(mn)**：每一格只被读一次，四个 `for` 加起来恰好执行 m × n 次。外层 `while` 最多转 ⌈min(m, n) / 2⌉ 圈，每圈只多几次比较。
+- **空间**：返回的列表本身占 O(mn)。除此之外只有四个整数边界，O(1)。
+
+## 自测：只剩一行、只剩一列
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`[[1,2,3]]` 的正确答案是 `[1,2,3]`。如果你得到 `[1,2,3,2,1]`，是读底行之前没有检查 `top ≤ bottom`：唯一的一行读完后又被倒着读了一遍。多出来的是 2、1 而不是 3、2、1，因为右列那一步已经把 `right` 从 2 收到了 1。
+
+`[[1],[2],[3]]` 的正确答案是 `[1,2,3]`。如果你得到 `[1,2,3,2]`，是读左列之前没有检查 `left ≤ right`：唯一的一列被右列读完后，又从下往上读回了 2。
+</Aside>
+
+本页代码对这两个输入，以及空矩阵、`[[]]`、1×1、2×2、中间剩一列的 4×3、与逐格转向暴力解对拍的随机 7×5 矩阵都跑过测试。
+
+## 延伸：只想知道第 k 个读到的是谁？
+
+矩阵很大（例如 2000 × 2000），只想知道按顺时针顺序第 k 个读到的数，k 从 0 数起。照原解法生成整个列表要 O(mn) 的时间和空间，其实大部分圈可以整圈跳过。
+
+四条边界的写法照用，只是不再逐格读，而是先数一圈有几格。剩下的矩形高 h、宽 w 时：
+
+- 只剩一行或一列（h = 1 或 w = 1），这一圈就是全部 h × w 格。
+- 否则一圈是顶行 w 格、右列 h − 1 格、底行 w − 1 格、左列 h − 2 格，合计 2(h + w) − 4。
+
+k 不小于这一圈的格数，就整圈跳过：k 减去圈长，四条边各往里收一格。落进某一圈后，再依次和四段的长度比，算出它在哪一段的第几格。
+
+拿 3 × 4 的样例找 k = 10。外圈 h = 3、w = 4，有 2 × (3 + 4) − 4 = 10 格，k = 10 不在这一圈里，跳过后 k 变成 0。里圈只剩一行（h = 1、w = 2），k = 0 落在顶行第 0 格，也就是第 1 行第 1 列的 6，和完整序列 `[1,2,3,4,8,12,11,10,9,5,6,7]` 的第 10 个一致。
+
+<Solution slug="spiral-matrix" file="followup" />
+
+跳圈最多 ⌈min(m, n) / 2⌉ 次，定位在圈内是常数次比较，所以时间 O(min(m, n))，额外空间 O(1)。2000 × 2000 的矩阵找最后一格（k = 3999999），只跳了 999 圈，落在最里面那个 2 × 2 的左下角：第 1000 行、第 999 列。
+
+## 参考
+
+- [力扣 54 · 螺旋矩阵](https://leetcode.cn/problems/spiral-matrix/)
+- [力扣 59 · 螺旋矩阵 II](https://leetcode.cn/problems/spiral-matrix-ii/)：反过来，按顺时针把 1 到 n² 填进矩阵，四条边界的写法完全一样。
+- 同样在网格上按规则移动的题：<ProblemLink slug="number-of-islands" />

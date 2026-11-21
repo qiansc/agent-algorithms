@@ -1,0 +1,162 @@
+---
+title: 多个工具可以并行，结果最早什么时候到齐
+description: 按拓扑顺序推每个工具的最早完成时刻，前置取最大值，答案是最长的一条依赖链，O(V+E)。
+sidebar:
+  label: 17. 并行工具最早何时到齐
+  order: 17
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Grid, Lanes, Stepper, Step } from '~/components/viz';
+
+export const dur = [4, 7, 3, 2];
+export function lanes(finish, fixed) {
+  return [0, 1, 2, 3].map((v) => ({
+    label: `工具 ${v}（${dur[v]}）`,
+    items: [{ start: finish[v] - dur[v], end: finish[v], label: fixed.includes(v) ? `${finish[v] - dur[v]}–${finish[v]}` : '暂定', tone: fixed.includes(v) ? 'accent' : 'ghost' }],
+  }));
+}
+export const frames = [
+  {
+    finish: [4, 7, 3, 2], fixed: [0, 1], changed: [], queue: '[0, 1]',
+    caption: '`finish` 先填各自的耗时 `[4, 7, 3, 2]`。0 和 1 没有前置，值已经定了；2 和 3 还是暂定。队列里是 0、1。',
+  },
+  {
+    finish: [4, 7, 7, 6], fixed: [0, 1, 3], changed: [2, 3], queue: '[1, 3]',
+    caption: '取出 0（4 时完成）。2 改成 `max(3, 4 + 3) = 7`，3 改成 `max(2, 4 + 2) = 6`。3 只等 0，值定为 6，进队。',
+  },
+  {
+    finish: [4, 7, 10, 6], fixed: [0, 1, 2, 3], changed: [2], queue: '[3, 2]',
+    caption: '取出 1（7 时完成）。2 改成 `max(7, 7 + 3) = 10`：较晚的前置 1 决定它 7 时开工。2 入度降到 0，进队。',
+  },
+  {
+    finish: [4, 7, 10, 6], fixed: [0, 1, 2, 3], changed: [], queue: '[]', done: true,
+    caption: '取出 3 和 2，它们没有后续。4 个工具都处理过，没有环。答案 `max(finish) = 10`。',
+  },
+];
+
+<ProblemMeta slug="parallel-finish-time" />
+
+## 题目
+
+有 n 个工具可以并行运行，求全部完成的最早时刻。
+
+- 输入：`duration[i]` 是工具 i 的耗时，正整数；依赖是一组有向边，`(u, v)` 表示 v 要等 u 完成才能开始。
+- 时刻 0 起就能开工。前置全部完成后可以立刻开始，同时运行的数量不限。
+- 依赖有环返回 −1；没有工具返回 0。
+- 耗时不是正数或边的编号越界时，抛出 `ValueError`（TypeScript 抛 `RangeError`）。
+- 工具数和边数都不超过 10 万。
+
+## 样例
+
+| duration | edges | 输出 |
+|---|---|---|
+| `[4, 7, 3, 2]` | `[(0,2), (1,2), (0,3)]` | `10` |
+| `[2, 8]` | `[]` | `8` |
+| `[2, 9, 3, 4]` | `[(0,2), (2,3)]` | `9` |
+| `[1, 1, 1]` | `[(0,1), (1,2), (2,1)]` | `-1` |
+
+第三个样例专门卡“按层取最大值再相加”。0 和 1 没有前置，是第一层；2 是第二层，3 是第三层。按层相加得 `max(2, 9) + 3 + 4 = 16`。实际上 1 和 0→2→3 这条链同时在跑：链长 2 + 3 + 4 = 9，1 也是 9，答案是 9。
+
+<Figure caption="第三个样例的时间线。1 和 0→2→3 并排跑，都在 9 时结束。按层相加相当于让 2 等 1 完成才开工。">
+  <Lanes
+    lanes={[
+      { label: '工具 0（2）', items: [{ start: 0, end: 2, label: '0–2' }] },
+      { label: '工具 1（9）', items: [{ start: 0, end: 9, label: '0–9' }] },
+      { label: '工具 2（3）', items: [{ start: 2, end: 5, label: '2–5' }, { start: 9, end: 12, label: '按层', tone: 'warn' }] },
+      { label: '工具 3（4）', items: [{ start: 5, end: 9, label: '5–9' }, { start: 12, end: 16, label: '按层', tone: 'warn' }] },
+    ]}
+    from={0}
+    to={16}
+    scale={30}
+    ticks={[0, 2, 4, 6, 8, 10, 12, 14, 16]}
+    marks={[{ at: 9, label: '9', tone: 'accent' }, { at: 16, label: '16？', tone: 'warn' }]}
+  />
+</Figure>
+
+## 思路
+
+按拓扑顺序算每个工具的最早完成时刻：等前置取最大值，再加自己的耗时。答案是所有完成时刻里最大的那个。
+
+拿第一个样例画时间线。0 和 1 没有前置，时刻 0 一起开始，分别在 4 和 7 完成。3 只等 0，4 时开工，6 时完成。2 要等 0 和 1，较晚的是 7，所以 2 在 7 时开工、10 时完成。
+
+<Figure caption="样例 1：2 的开工时刻由较晚的前置 1 决定。全部完成的时刻是 10。">
+  <Lanes lanes={lanes([4, 7, 10, 6], [0, 1, 2, 3])} from={0} to={10} scale={46} marks={[{ at: 10, label: '10', tone: 'accent' }]} />
+</Figure>
+
+把这个过程写成规则。记 `finish[v]` 为工具 v 最早的完成时刻：
+
+- v 没有前置：`finish[v] = duration[v]`。
+- v 有前置：要等最晚的那个，`finish[v] = max(finish[u] 对所有前置 u) + duration[v]`。
+
+“等所有前置”是取最大值，不是相加。0 和 1 同时在跑，重叠的时间只过一次。
+
+算 v 之前，它的前置必须都算完。按拓扑顺序处理就能保证：用入度表做 Kahn 算法（和 <ProblemLink slug="lexicographic-tool-order" /> 一样），工具出队时，它的前置都已出队并更新过它。
+
+代码里不一次求 `max`。`finish[v]` 初值是 `duration[v]`，每处理完一个前置 u，就用 `finish[u] + duration[v]` 抬高它一次。全部处理完，留下的就是最大值。
+
+<Stepper title="按拓扑顺序更新 finish">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <Lanes lanes={lanes(f.finish, f.fixed)} from={0} to={10} scale={46} marks={f.done ? [{ at: 10, label: '10', tone: 'accent' }] : []} />
+      <Grid
+        corner="工具"
+        rowHeaders={['finish']}
+        colHeaders={[0, 1, 2, 3]}
+        rows={[f.finish]}
+        tones={Object.fromEntries(f.changed.map((c) => [`0,${c}`, 'strong']))}
+      />
+    </Step>
+  ))}
+</Stepper>
+
+这个时刻为什么最早，又一定做得到？
+
+- 不可能更早：答案对应一条依赖链，例如 1→2。链上的工具只能一个接一个跑，工位再多也压不短 7 + 3 = 10。
+- 一定做得到：每个工具在前置齐全时立刻开工，就恰好在 `finish[v]` 完成。工位不限，不用排队。
+
+这条决定总时长的最长链，叫作**关键路径**。样例 1 的关键路径是 1→2。
+
+## 代码
+
+<Solution slug="parallel-finish-time" />
+
+两个版本结构相同。TypeScript 用一个数组加读指针 `head` 当队列：`Array.prototype.shift()` 每次要把后面的元素整体前移，10 万个工具时会退化成 O(V²)。最后求最大值也没有用 `Math.max(...finish)`，展开 10 万个参数可能超出调用栈的限制。
+
+## 复杂度
+
+V 是工具数，E 是依赖边数。
+
+- **时间 O(V + E)**：建表 O(V + E)；每个工具进队、出队各一次；每条边在它的起点出队时用一次。
+- **空间 O(V + E)**：邻接表存 E 条边，入度、`finish` 和队列各 O(V)。
+
+## 自测：先处理的前置更慢
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`duration = [9, 1, 1]`，`edges = [(0,2), (1,2)]`。正确答案是 10：2 要等 9 时才完成的 0。
+
+队列会先处理 0，把 `finish[2]` 设为 9 + 1 = 10；再处理 1，算出 1 + 1 = 2。如果你得到 2，是写成了 `finish[child] = finish[parent] + duration[child]`，后处理的前置覆盖了先处理的，少了 `max`。
+
+`duration = [2, 9, 3, 4]`，`edges = [(0,2), (2,3)]`，正确答案是 9。如果你得到 16，是按层取了最大值再相加。
+</Aside>
+
+本页代码还测了空计划、自环、只有一部分成环的图、非法耗时，以及一张 60 个工具、120 条边的随机依赖图；所有 7 个工具以内的随机小图都和“记忆化搜索最长路径”的写法对拍过。
+
+## 延伸：只有两个工位呢？
+
+假设同一时刻最多只能运行两个工具。原来的算法还能用吗？
+
+它算出的数仍是一个**下界**：关键路径上的工具还得一个接一个跑，工位少了只会更慢。但不一定做得到。三个互不依赖、耗时都是 5 的工具，原算法给出 5；两个工位至少要跑两轮，正确答案是 10。
+
+这时要模拟工位的占用：每当有工位空出来，就从已就绪的工具里挑一个开工。样例 1 用这种方式在两个工位上跑：0 和 1 在 0 时开始；0 在 4 时完成，空出的工位给已就绪的 3，6 时完成；1 在 7 时完成，2 开工，10 时完成。答案仍是 10，因为两个工位正好够用。
+
+挑哪一个就绪的工具会影响结果。有依赖、工位数有限时，求严格最短时间是 NP 难问题，实际做法是按某种优先级贪心，例如先挑“后面挂着的链最长”的工具。工位有限、但调用之间没有依赖的情况，见 <ProblemLink slug="concurrency-limited-calls" />。
+
+## 参考
+
+- [力扣 2050 · 并行课程 III](https://leetcode.cn/problems/parallel-courses-iii/)
+- [关键路径法（Critical Path Method）](https://en.wikipedia.org/wiki/Critical_path_method)
+- 同一张依赖图上排字典序最小的执行顺序：<ProblemLink slug="lexicographic-tool-order" />

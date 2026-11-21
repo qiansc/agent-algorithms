@@ -1,0 +1,148 @@
+---
+title: 分数逐个到达，随时返回第 K 大
+description: 分数一个一个到达，每次都要报出当前第 k 大：用大小为 k 的小顶堆，堆顶就是答案，每次 O(log k)。
+sidebar:
+  label: 9. 流式第 K 大分数
+  order: 9
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { ArrayCells, Graph, Stepper, Step } from '~/components/viz';
+
+export const stream = [4, 9, 4, 2, 7, 10];
+export const pos = [[80, 26], [36, 96], [124, 96]];
+export const heapNodes = (vals, tones = {}) =>
+  vals.map((v, i) => ({ id: `h${i}`, label: v, x: pos[i][0], y: pos[i][1], tone: tones[i] ?? (i === 0 ? 'accent' : 'default') }));
+export const heapEdges = (n, tones = {}) =>
+  [[0, 1], [0, 2]].filter(([, c]) => c < n).map(([p, c]) => ({ from: `h${p}`, to: `h${c}`, tone: tones[c], directed: false }));
+export const frames = [
+  { at: 0, heap: [4], out: ['—'], caption: '读入 4。堆里不到 3 个，直接放进去，返回空值。' },
+  { at: 1, heap: [4, 9], out: ['—', '—'], caption: '读入 9。还是不到 3 个，放进去，挂在 4 下面。返回空值。' },
+  { at: 2, heap: [4, 9, 4], out: ['—', '—', 4], caption: '读入第二个 4，单独算一个。堆满 3 个，堆顶 4 就是第 3 大，返回 4。' },
+  { at: 3, heap: [4, 9, 4], out: ['—', '—', 4, 4], skip: true, caption: '读入 2。2 不大于门槛 4，进不了前 3 名，堆不动，直接返回 4。' },
+  { at: 4, heap: [7, 9, 4], out: ['—', '—', 4, 4], ht: { 0: 'strong', 2: 'warn' }, et: { 2: 'accent' }, caption: '读入 7。7 > 4，堆顶的 4 被挤掉，7 坐到堆顶。但它比右孩子 4 大，要往下沉。' },
+  { at: 4, heap: [4, 9, 7], out: ['—', '—', 4, 4, 4], ht: { 2: 'strong' }, caption: '7 和较小的孩子 4 交换。堆变成 4、9、7，门槛还是 4（另一个 4），返回 4。' },
+  { at: 5, heap: [10, 9, 7], out: ['—', '—', 4, 4, 4], ht: { 0: 'strong', 2: 'warn' }, et: { 2: 'accent' }, caption: '读入 10。10 > 4，挤掉最后一个 4，10 坐到堆顶。两个孩子 9 和 7 都比它小，要往下沉。' },
+  { at: 5, heap: [7, 9, 10], out: ['—', '—', 4, 4, 4, 7], ht: { 2: 'strong' }, caption: '10 和较小的孩子 7 交换。堆里是目前最高的 3 个分数 7、9、10，返回堆顶 7。' },
+  { at: 5, heap: [2, 4, 7, 9, 10], wrong: true, out: ['—', '—', '—', 2, 4, 7], caption: '错误做法：先用集合去重，两个 4 算成一个。前 3 次凑不满 3 个，读入 2 时返回 2。答案变成 `[None, None, None, 2, 4, 7]`，错在第 3、4 位。' },
+];
+
+<ProblemMeta slug="kth-score-stream" />
+
+## 题目
+
+重排器每算完一个候选，就给出一个分数。实现一个类，随时返回目前收到的第 k 大分数：
+
+- `KthScore(k)`：`k ≥ 1`，否则抛出错误。
+- `add(score)`：收下一个分数，返回目前所有分数里第 k 大的那个。不到 k 个时返回空值（Python 返回 `None`，TypeScript 返回 `null`）。
+- 分数可以是整数或小数，可以为负。
+- 相同的分数来自不同候选，**每个都要算**。
+- 分数流可能很长，不能全部存下来再排序。
+
+## 样例
+
+`k = 3`，依次调用 `add(4)`、`add(9)`、`add(4)`、`add(2)`、`add(7)`、`add(10)`：
+
+| 读入 | 4 | 9 | 4 | 2 | 7 | 10 |
+|---|---|---|---|---|---|---|
+| 目前最高的 3 个 | 4 | 9, 4 | 9, 4, 4 | 9, 4, 4 | 9, 7, 4 | 10, 9, 7 |
+| 返回 | `None` | `None` | `4` | `4` | `4` | `7` |
+
+样例里的两个 4 用来检查“先去重”的写法。用集合存分数，两个 4 合成一个，第三次调用时只有 4 和 9，返回 `None`；读入 2 后返回 2。正确答案里第 3 大是第二个 4。
+
+## 思路
+
+用一个大小为 k 的小顶堆，只存目前最高的 k 个分数，堆顶就是第 k 大。
+
+全部存下来、每次排序取第 k 个，一次 `add` 要 O(n log n)。但第 k 大只和最高的 k 个分数有关，更低的分数以后用不到。
+
+所以手上只留 k 个分数。想象 3 把椅子，坐着目前最高的 3 个分数。新分数来了，只和椅子上最低的那位比：
+
+- 比它高，最低的那位让座，新分数坐下。
+- 不比它高，新分数进不了前 3 名，直接忽略。
+
+椅子上最低的那位就是答案：3 个人里最低的，就是全体的第 3 大。下面把这个最低分叫作门槛。
+
+这里只反复做两件事：查看最小值、换掉最小值。**小顶堆**是一棵完全二叉树，每个父节点都不大于孩子，最小值总在堆顶，查看是 O(1)；换掉堆顶后让新值往下沉，最多沉 log k 层。
+
+<Stepper title="k = 3，依次读入 4、9、4、2、7、10">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div>
+          <p class="viz-row-label">分数流</p>
+          <ArrayCells
+            values={stream}
+            tones={stream.map((_, i) => (i === f.at ? (f.skip ? 'muted' : 'strong') : i < f.at ? 'done' : 'default'))}
+            pointers={[{ at: f.at, label: '读入' }]}
+            index={false}
+            cell={40}
+          />
+          <p class="viz-row-label">每次的返回值</p>
+          <ArrayCells values={f.out} tones={f.wrong ? { 2: 'warn', 3: 'warn' } : {}} index={false} cell={40} />
+        </div>
+        <div style="margin-top: 0">
+          <p class="viz-row-label">{f.wrong ? '去重后的集合（错误做法）' : '小顶堆（堆顶就是门槛）'}</p>
+          {f.wrong ? (
+            <ArrayCells values={f.heap} index={false} cell={40} />
+          ) : (
+            <Graph nodes={heapNodes(f.heap, f.ht)} edges={heapEdges(f.heap.length, f.et)} width={170} height={124} />
+          )}
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+忽略不大于门槛的分数不会出错。读入 2 时，椅子上的 9、4、4 都不比它低。以后来的分数只会让椅子上的人更强，2 永远挤不进前 3 名。
+
+和门槛相等的分数也直接忽略。用一个 4 换掉另一个 4，椅子上的分数不变，答案也不变，还省一次下沉。
+
+## 代码
+
+<Solution slug="kth-score-stream" />
+
+Python 用标准库的 `heapq`：`heappush` 放入，`heapreplace` 一步完成“弹出堆顶、放入新值”，比先 `heappop` 再 `heappush` 少调整一次。
+
+JavaScript 没有内置的堆，TypeScript 版自己写了一个 `MinHeap`：下标 `i` 的孩子在 `2i + 1` 和 `2i + 2`，父节点在 `(i - 1) >> 1`。`push` 把新值放在末尾往上浮；`replaceTop` 把新值放在堆顶往下沉，每次和较小的孩子交换。只用到这两个操作，所以没写 `pop`。
+
+## 复杂度
+
+k 是要找的名次，n 是到目前为止读入的分数个数。
+
+- **时间**：每次 `add` 最坏 O(log k)，新值最多沿着堆往下沉 log₂ k 层。新分数不大于门槛时只比较一次，O(1)。读完 n 个分数总共 O(n log k)。
+- **空间 O(k)**：堆里最多 k 个分数，和 n 无关。
+
+## 自测：两个容易写错的输入
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`k = 2`，依次读入 `5, 5, 5`，正确答案是 `[None, 5, 5]`。如果你得到 `[None, None, None]`，说明把相同分数去重了。
+
+`k = 3`，依次读入 `9, 8, 7, 6, 5`，正确答案是 `[None, None, 7, 7, 7]`。如果你得到 `[None, None, 7, 6, 5]`，说明没和门槛比较，每来一个分数都换掉了堆顶。如果得到 `[None, None, 9, 9, 9]`，用的是大顶堆，堆顶是最大值而不是第 k 大。
+</Aside>
+
+本页代码还对 `k = 1`、始终不足 k 个、等于门槛的分数、负数和小数，以及 60 个随机分数跑过测试，并在每一步与“全部排序后取第 k 个”对照。
+
+## 延伸：分数分散在 10 台机器上，每台各留 k 个够不够？
+
+候选分给 10 台机器打分，每台只报本地最高的 k 个分数，汇总后再取第 k 大。这样不会漏。
+
+设全局前 k 名里有一个分数 x 在机器 A 上。全局排在 x 前面的不到 k 个，A 上排在 x 前面的只会更少，所以 x 一定在 A 的本地前 k 名里，会被报上来。
+
+<Solution slug="kth-score-stream" file="followup" />
+
+用 `k = 3` 试：机器 A 有 `[10, 9, 8, 1]`，机器 B 有 `[7, 2]`。A 报 10、9、8，B 报 7、2，汇总后第 3 大是 8，和把 6 个分数放在一起算的结果一致。
+
+每台报的少于 k 个就会出错。前 3 名全在 A 上，如果每台只报 2 个，汇总后是 10、9、7、2，第 3 大变成 7。
+
+每台机器内部仍然可以用 `KthScore` 边收边算。如果最后要输出前 k 名是哪些候选，分数并列时还要约定统一的次序，例如同分按候选 ID 升序。每台机器都按这个次序截取前 k 名，汇总结果才和单机一致。
+
+## 参考
+
+- [力扣 703 · 数据流中的第 K 大元素](https://leetcode.cn/problems/kth-largest-element-in-a-stream/)
+- [Python 文档：heapq 堆队列算法](https://docs.python.org/zh-cn/3/library/heapq.html)
+- Cormen 等，《算法导论》第 6 章“堆排序”：二叉堆的上浮与下沉
+- 同样用堆维护前 k 名的题：<ProblemLink slug="top-k-tools" />

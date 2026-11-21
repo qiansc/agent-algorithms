@@ -1,0 +1,225 @@
+---
+title: 手写 LayerNorm 和 RMSNorm
+description: 对一个向量做 LayerNorm 和 RMSNorm：前者减均值再除以标准差，后者只除以均方根。
+sidebar:
+  label: 37. 两种 Norm 手写
+  order: 37
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Grid, Bars, Stepper, Step } from '~/components/viz';
+
+export const welford = [
+  {
+    seen: [], n: 0, delta: '—', mean: '0', m2: '0',
+    caption: '开始时 `n = 0`、`mean = 0`、`m2 = 0`。读完后方差等于 `m2 / n`。',
+  },
+  {
+    seen: [0], n: 1, delta: '1 − 0 = 1', mean: '0 + 1/1 = 1', m2: '0 + 1 × (1 − 1) = 0',
+    caption: '读到 1。`delta = 1`，均值变成 1，`m2` 加 `1 × (1 − 1) = 0`。',
+  },
+  {
+    seen: [0, 1], n: 2, delta: '2 − 1 = 1', mean: '1 + 1/2 = 1.5', m2: '0 + 1 × (2 − 1.5) = 0.5',
+    caption: '读到 2。`delta` 用更新前的均值 1 算出 1；均值变成 1.5；`m2` 乘的是 2 减更新后的均值，得 0.5。方差 0.5 / 2 = 0.25，正是 [1, 2] 的总体方差。',
+  },
+  {
+    seen: [0, 1, 2], n: 3, delta: '3 − 1.5 = 1.5', mean: '1.5 + 1.5/3 = 2', m2: '0.5 + 1.5 × (3 − 2) = 2',
+    caption: '读到 3。`delta = 1.5`，均值变成 2，`m2 = 0.5 + 1.5 × 1 = 2`。',
+  },
+  {
+    seen: [0, 1, 2, 3], n: 4, delta: '4 − 2 = 2', mean: '2 + 2/4 = 2.5', m2: '2 + 2 × (4 − 2.5) = 5',
+    caption: '读到 4。均值 2.5，`m2 = 5`，方差 5 / 4 = 1.25，和两遍扫描相同。全程只出现 1.5、2 这样的小差值。',
+  },
+];
+
+<ProblemMeta slug="layernorm-rmsnorm" />
+
+## 题目
+
+对长度为 d 的向量 `x`（d ≥ 1）实现两种归一化：
+
+- `layer_norm(x, gamma, beta, eps=1e-5)`：先求 `x` 的均值和总体方差（除以 d），每一维减去均值、除以 `√(方差 + eps)`，再逐维乘 `gamma[i]`、加 `beta[i]`。
+- `rms_norm(x, gamma, eps=1e-6)`：不减均值，求平方的平均值，每一维除以 `√(平方均值 + eps)`，再逐维乘 `gamma[i]`。
+
+- `gamma`、`beta` 的长度等于 d，`eps ≥ 0`。
+- 以下情况抛 `ValueError`（TypeScript 抛 `Error`）：`x` 为空；`gamma` 或 `beta` 长度不对；`eps` 为负；`eps = 0` 且分母为 0（LayerNorm 遇到各维全相同，RMSNorm 遇到全零）。
+
+## 样例
+
+| 调用 | 输出（保留 4 位） |
+|---|---|
+| `layer_norm([1,2,3,4], [1,1,1,1], [0,0,0,0], eps=0)` | `[-1.3416, -0.4472, 0.4472, 1.3416]` |
+| `rms_norm([1,2,3,4], [1,1,1,1], eps=0)` | `[0.3651, 0.7303, 1.0954, 1.4606]` |
+| `layer_norm([1,2,3,4], [1,1,1,1], [0,0,0,0], eps=1)` | `[-1, -0.3333, 0.3333, 1]` |
+| `layer_norm([5,5,5], [1,1,1], [0,0,0], eps=0)` | 抛 `ValueError` |
+| `layer_norm([5,5,5], [1,1,1], [0,0,0])` | `[0, 0, 0]`（默认 eps = 1e-5） |
+
+第一行抓“方差除以 d − 1”：那样第一项会是 −1.1619。第三行把 eps 设成 1，检查它是否在根号里：放在外面，第一项会是 −0.7082。
+
+## 思路
+
+照公式逐维算即可。LayerNorm 先减均值、再除以标准差；RMSNorm 不减均值，只除以均方根。eps 都加在根号里。
+
+### LayerNorm：先挪到 0 附近，再统一尺度
+
+拿 `x = [1, 2, 3, 4]` 走一遍。
+
+均值是 (1 + 2 + 3 + 4) / 4 = 2.5。每一维减去它，得到偏差 −1.5、−0.5、0.5、1.5，整组数以 0 为中心。
+
+方差是偏差平方的平均：(2.25 + 0.25 + 0.25 + 2.25) / 4 = 1.25。这里除以 d = 4，叫**总体方差**。统计课上的“样本方差”除以 d − 1 = 3，会得到 5/3 ≈ 1.6667。LayerNorm 用前者，PyTorch 文档也写明是有偏估计。
+
+标准差是 √1.25 ≈ 1.1180。第一维 −1.5 / 1.1180 = −1.3416，其余三维是 −0.4472、0.4472、1.3416。这四个数均值是 0，方差是 1。
+
+最后乘 `gamma`、加 `beta`。这两个是可学习参数，通常初始化为全 1 和全 0，所以样例的输出就是归一化后的值。如果 `gamma` 全是 2、`beta` 全是 1，第一维变成 2 × (−1.3416) + 1 = −1.6833。
+
+### RMSNorm：只统一尺度
+
+RMSNorm 不减均值，直接对原值求平方的平均：(1 + 4 + 9 + 16) / 4 = 7.5。它的平方根 √7.5 ≈ 2.7386 叫均方根（root mean square，RMS）。每一维除以它，得到 0.3651、0.7303、1.0954、1.4606。
+
+它没有 `beta`，也不用先算均值，少一次遍历。Llama 系列模型用的就是它。
+
+<Figure caption="`x = [1, 2, 3, 4]` 的两条路线。左半边是 LayerNorm，右半边是 RMSNorm。最后一行是各列的平均值。">
+  <Grid
+    colHeaders={['x', 'x − 均值', '(x − 均值)²', 'LayerNorm', 'x²', 'RMSNorm']}
+    rowHeaders={['第 0 维', '第 1 维', '第 2 维', '第 3 维', '平均']}
+    rows={[
+      [1, '−1.5', 2.25, '−1.3416', 1, 0.3651],
+      [2, '−0.5', 0.25, '−0.4472', 4, 0.7303],
+      [3, 0.5, 0.25, 0.4472, 9, 1.0954],
+      [4, 1.5, 2.25, 1.3416, 16, 1.4606],
+      [2.5, 0, 1.25, '', 7.5, ''],
+    ]}
+    tones={{
+      '4,0': 'soft', '4,2': 'accent', '4,4': 'accent',
+      '0,3': 'soft', '1,3': 'soft', '2,3': 'soft', '3,3': 'soft',
+      '0,5': 'soft', '1,5': 'soft', '2,5': 'soft', '3,5': 'soft',
+    }}
+    cellWidth={92}
+  />
+</Figure>
+
+### eps 为什么放在根号里面
+
+eps 防分母为 0。`x = [5, 5, 5]` 的方差是 0，没有 eps 就是 0 / 0。默认 `eps = 1e-5` 时分母是 √0.00001 ≈ 0.0032，偏差全是 0，输出 `[0, 0, 0]`。
+
+eps 很小时，放在根号里外几乎没有区别。设成 1 就能分出来：放在里面，分母是 √(1.25 + 1) = 1.5，第一维 −1.5 / 1.5 = −1；放在外面，分母是 1.1180 + 1 = 2.1180，第一维是 −0.7082。PyTorch 的 `LayerNorm`、`RMSNorm` 和 Llama 都加在根号里。也有实现加在外面，加载别人的权重时按它训练时的写法来。
+
+### 两者的区别：对平移敏感不敏感
+
+把每一维都加上 10，`x` 变成 `[11, 12, 13, 14]`。
+
+LayerNorm 先减均值 12.5，偏差还是 −1.5、−0.5、0.5、1.5，输出不变。
+
+RMSNorm 的平方均值变成 (121 + 144 + 169 + 196) / 4 = 157.5，均方根 √157.5 ≈ 12.5499，第一维 11 / 12.5499 = 0.8765。四个输出挤到 0.88 到 1.12 之间，原来是 0.37 到 1.46。
+
+如果每一维都乘 3（eps = 0），两者都不变：均值、标准差、均方根都跟着乘 3，相除抵消。LayerNorm 对平移和缩放都不敏感，RMSNorm 只对缩放不敏感。RMSNorm 论文认为 LayerNorm 主要靠缩放这一半起作用，省掉减均值可以少算一些。
+
+<Figure caption="整体加 10：LayerNorm 的输出不变；RMSNorm 的输出挤到 0.88 到 1.12 之间。">
+  <div class="viz-row">
+    <div>
+      <p class="viz-row-label">LayerNorm（两个输入结果相同）</p>
+      <Bars
+        items={[
+          { label: '1 / 11', value: -1.3416, tone: 'accent' },
+          { label: '2 / 12', value: -0.4472, tone: 'accent' },
+          { label: '3 / 13', value: 0.4472, tone: 'accent' },
+          { label: '4 / 14', value: 1.3416, tone: 'accent' },
+        ]}
+        min={-2}
+        max={1.6}
+        barHeight={120}
+      />
+    </div>
+    <div>
+      <p class="viz-row-label">RMSNorm（深色为 [1,2,3,4]，浅色为加 10 之后）</p>
+      <Bars
+        items={[
+          { label: '1', value: 0.3651, tone: 'accent' },
+          { label: '11', value: 0.8765 },
+          { label: '2', value: 0.7303, tone: 'accent' },
+          { label: '12', value: 0.9562 },
+          { label: '3', value: 1.0954, tone: 'accent' },
+          { label: '13', value: 1.0359 },
+          { label: '4', value: 1.4606, tone: 'accent' },
+          { label: '14', value: 1.1155 },
+        ]}
+        min={0}
+        max={1.6}
+        barHeight={120}
+      />
+    </div>
+  </div>
+</Figure>
+
+## 代码
+
+<Solution slug="layernorm-rmsnorm" />
+
+两个版本都按同样的顺序从左到右累加。Python 3.12 起，内置 `sum` 对浮点数改用补偿求和，结果的最后几位可能和 TypeScript 的 `reduce` 不同，测试按 1e-9 的容差比较。分母为 0 的检查在两边都写了出来：不检查的话，Python 会抛 `ZeroDivisionError`，TypeScript 则悄悄返回一串 `NaN`。
+
+## 复杂度
+
+d 是向量的维数。
+
+- **时间 O(d)**：LayerNorm 扫三遍（求均值、求方差、算输出），RMSNorm 扫两遍。
+- **空间 O(d)**：只有返回的新向量，中间量都是几个标量。
+
+## 自测：方差和 eps 的位置
+
+<Aside type="caution" title="两个能直接分出对错的输入">
+`layer_norm([1,2,3,4], [1,1,1,1], [0,0,0,0], eps=0)` 的第一项是 −1.3416。如果你得到 −1.1619，方差除成了 d − 1。
+
+`layer_norm([1,2,3,4], [1,1,1,1], [0,0,0,0], eps=1)` 的结果是 `[-1, -0.3333, 0.3333, 1]`。如果第一项是 −0.7082，你把 eps 加在了根号外面。
+</Aside>
+
+本页代码还测过只有一维的向量、全相同的向量、带 `gamma` 和 `beta` 的情况、16 维随机数据，以及空向量、长度不对、分母为 0 这几种非法输入。
+
+## 延伸：数据只能读一遍时，方差怎么算？
+
+假设向量很长，分块流过来，只能读一遍就要给出均值和方差。
+
+直接的想法是边读边累加 Σx 和 Σx²，最后用“平方的均值减去均值的平方”。公式没错，浮点数却撑不住。把样例整体加上 1e8，`x = [100000001, 100000002, 100000003, 100000004]`。每个 x² 约是 1e16，这个量级上相邻两个双精度数相差 2。两个约 1e16 的数相减，本该得 1.25，实际得 2.0。LayerNorm 的第一项从 −1.3416 变成 −1.5 / √2 = −1.0607，可按平移不变，它本该和 `[1,2,3,4]` 的结果相同。
+
+改用 Welford 递推：每读一个数 t，只维护个数 `n`、当前均值 `mean` 和偏差平方和 `m2`。
+
+```text
+delta = t − mean        # 用更新前的均值
+mean += delta / n
+m2   += delta × (t − mean)   # 用更新后的均值
+```
+
+读完后方差就是 `m2 / n`。每一步只用“当前值与均值的差”，不会出现两个大数相减。
+
+<Stepper title="Welford 递推读入 [1, 2, 3, 4]">
+  {welford.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div>
+          <p class="viz-row-label">已读入的数</p>
+          <ArrayCells values={[1, 2, 3, 4]} tones={[0, 1, 2, 3].map((i) => (f.seen.includes(i) ? (i === f.n - 1 ? 'strong' : 'done') : 'default'))} />
+        </div>
+        <div>
+          <p class="viz-row-label">状态（n = {f.n}）</p>
+          <Grid rowHeaders={['delta', 'mean', 'm2']} rows={[[f.delta], [f.mean], [f.m2]]} cellWidth={240} />
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+对 `[100000001, …, 100000004]` 跑同样的递推，得到均值 100000002.5、方差 1.25，没有误差。原题解法先求均值、再扫一遍求偏差平方，是两遍扫描，也不受影响。只有改成一遍扫描才需要 Welford。
+
+<Solution slug="layernorm-rmsnorm" file="followup" />
+
+拿到均值和方差后，算输出时仍然要再读一次 `x`。一遍扫描省掉的是“为了求方差而多读的那一遍”。
+
+## 参考
+
+- [Layer Normalization（Ba, Kiros, Hinton, 2016）](https://arxiv.org/abs/1607.06450)
+- [Root Mean Square Layer Normalization（Zhang, Sennrich, 2019）](https://arxiv.org/abs/1910.07467)
+- [PyTorch `torch.nn.LayerNorm` 文档](https://docs.pytorch.org/docs/stable/generated/torch.nn.LayerNorm.html)
+- Welford 递推：B. P. Welford, *Note on a Method for Calculating Corrected Sums of Squares and Products*, Technometrics, 1962
+- 用到 RMSNorm 的模型结构：<ProblemLink slug="params-and-kv-cache" />

@@ -1,0 +1,199 @@
+---
+title: 工具路由器的阈值设多少，总损失最低
+description: 按分数从高到低移动阈值，同分的一批一起越过，扫一遍就找到误调用与漏调用总代价最低的阈值。
+sidebar:
+  label: 49. 路由阈值
+  order: 49
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { ArrayCells, Grid, Bars, Stepper, Step } from '~/components/viz';
+
+export const scores = ['0.9', '0.8', '0.8', '0.2'];
+export const labels = ['正', '正', '负', '正'];
+export const frames = [
+  {
+    tones: [], range: null, group: false, fpN: 0, fnN: 3,
+    bars: [{ label: '+∞', value: 6, tone: 'strong' }],
+    caption: '阈值 +∞：一个都不调用，3 个正例全漏，损失 3 × 2 = 6。`best = (+∞, 6)`。',
+  },
+  {
+    tones: ['strong'], range: [0, 0, '调用（≥ 0.9）'], group: false, fpN: 0, fnN: 2,
+    bars: [{ label: '+∞', value: 6 }, { label: '0.9', value: 4, tone: 'strong' }],
+    caption: '阈值 0.9：越过一个正例，损失 6 − 2 = 4，`best = (0.9, 4)`。',
+  },
+  {
+    tones: ['accent', 'warn'], range: [0, 1, '只放进一个 0.8？', 'warn'], group: true, fpN: 0, fnN: 1,
+    bars: [{ label: '+∞', value: 6 }, { label: '0.9', value: 4, tone: 'soft' }, { label: '0.8?', value: 2, tone: 'warn' }],
+    caption: '错误做法：读完正例 0.8 就比较，记下 `(0.8, 2)`。但阈值 0.8 会同时调用两个 0.8，这个结果不存在。',
+  },
+  {
+    tones: ['accent', 'strong', 'strong'], range: [0, 2, '调用（≥ 0.8）'], group: true, fpN: 1, fnN: 1,
+    bars: [{ label: '+∞', value: 6 }, { label: '0.9', value: 4, tone: 'strong' }, { label: '0.8', value: 6 }],
+    caption: '正确做法：两个 0.8 一起越过，损失 4 − 2 + 4 = 6。整批结算完再比较，6 不比 4 小，`best` 不变。',
+  },
+  {
+    tones: ['accent', 'accent', 'accent', 'strong'], range: [0, 3, '调用（≥ 0.2）'], group: false, fpN: 1, fnN: 0,
+    bars: [{ label: '+∞', value: 6 }, { label: '0.9', value: 4, tone: 'strong' }, { label: '0.8', value: 6 }, { label: '0.2', value: 4, tone: 'soft' }],
+    caption: '阈值 0.2：越过最后一个正例，损失 6 − 2 = 4。和 0.9 平分，不更新，`best` 仍是 `(0.9, 4)`。',
+  },
+  {
+    tones: ['strong', 'default', 'default', 'default'], range: [0, 0, '调用（≥ 0.9）'], group: false, fpN: 0, fnN: 2,
+    bars: [{ label: '+∞', value: 6 }, { label: '0.9', value: 4, tone: 'strong' }, { label: '0.8', value: 6 }, { label: '0.2', value: 4 }],
+    caption: '扫完。4 个候选的损失是 6、4、6、4，答案 `(0.9, 4)`：只调用 0.9 那条，漏掉两个正例，2 × 2 = 4。',
+  },
+];
+
+<ProblemMeta slug="routing-threshold" />
+
+## 题目
+
+写 `best_threshold(samples, fp, fn)`，为工具路由器选一个阈值，返回 `(阈值, 最小总代价)`。
+
+- 路由器给每个请求打分，分数 ≥ 阈值就调用工具。
+- `samples` 是验证集，每条是 `(分数, 标签)`。标签 1 是该调用的正例，0 是不该调用的负例。
+- 负例被调用叫误调用，每次代价 `fp`；正例没被调用叫漏调用，每次代价 `fn`。
+- 候选阈值只考虑验证集里出现过的分数，再加上正无穷（一个都不调用）。
+- 多个阈值总代价相同时，取**更高**的阈值。
+- 空验证集返回 `(+∞, 0)`。
+- 分数是有限实数，可以为负；标签只能是 0 或 1；`fp`、`fn` 是非负整数。不满足时 Python 抛 `ValueError`，TypeScript 抛 `Error`。
+
+## 样例
+
+| `samples` | `fp` | `fn` | 输出 |
+|---|---|---|---|
+| `[(0.9, 1), (0.8, 1), (0.8, 0), (0.2, 1)]` | 4 | 2 | `(0.9, 4)` |
+| 同上 | 1 | 2 | `(0.2, 1)` |
+| `[(0.5, 0), (0.3, 0)]` | 1 | 1 | `(+∞, 0)` |
+| `[]` | 4 | 2 | `(+∞, 0)` |
+
+样例 1 检查两件事：
+
+- 两条 0.8 一正一负。读完正例 0.8 时损失暂时是 2，这时就更新答案，会输出不存在的 `(0.8, 2)`。
+- 阈值 0.9 和 0.2 的损失都是 4，按规则取 0.9。
+
+## 思路
+
+按分数从高到低排序，阈值从 +∞ 往下移，每越过一条记录就加减一次损失。同分的记录一起越过，结算完再和最优值比较。
+
+### 阈值只需要试有限个
+
+阈值在两个相邻分数之间移动时，被调用的请求不变，损失也不变。所以只需要试每个出现过的分数，再加上 +∞。样例 1 的候选是 +∞、0.9、0.8、0.2。
+
+每个候选都重新数一遍错误，要 O(n²)。
+
+### 从高往低移动，损失只改一点
+
+阈值从 +∞ 往下移，每越过一条记录，它就从“不调用”变成“调用”：
+
+- 越过正例：漏调用变成命中，损失减 `fn`。
+- 越过负例：本来正确，现在成了误调用，损失加 `fp`。
+
+起点 +∞ 时所有正例都漏掉，损失是 `正例个数 × fn`。之后每条只做一次加减，排序后扫一遍就得到所有候选的损失。
+
+### 同分的一批必须一起越过
+
+阈值设成 0.8 时，两个 0.8 会同时被调用。所以越过 0.8 时，先把两条都结算完，再和当前最优值比较。
+
+<Stepper title="阈值从 +∞ 往下扫，fp = 4，fn = 2">
+  {frames.map((f) => (
+    <Step caption={f.caption}>
+      <div class="viz-row">
+        <div>
+          <p class="viz-row-label">按分数从高到低排好的验证集</p>
+          <ArrayCells
+            label="分数"
+            values={scores}
+            tones={f.tones}
+            ranges={f.range ? [{ from: f.range[0], to: f.range[1], label: f.range[2], tone: f.range[3] ?? 'accent' }] : []}
+            index={false}
+          />
+          <ArrayCells
+            label="标签"
+            values={labels}
+            tones={f.tones}
+            ranges={f.group ? [{ from: 1, to: 2, label: '同分 0.8', side: 'bottom', tone: 'default' }] : []}
+            index={false}
+          />
+          <Grid
+            colHeaders={['条数', '单价', '小计']}
+            rowHeaders={['误调用', '漏调用', '总损失']}
+            rows={[
+              [f.fpN, 4, f.fpN * 4],
+              [f.fnN, 2, f.fnN * 2],
+              ['', '', f.fpN * 4 + f.fnN * 2],
+            ]}
+            tones={{ '2,0': 'ghost', '2,1': 'ghost', '2,2': f.tones.includes('warn') ? 'warn' : 'accent' }}
+          />
+        </div>
+        <div>
+          <p class="viz-row-label">每个候选阈值的损失</p>
+          <Bars items={f.bars} max={6} barHeight={120} />
+        </div>
+      </div>
+    </Step>
+  ))}
+</Stepper>
+
+每个候选阈值的损失都在扫描中算到了，而且只在整批结算完时比较，所以不会漏掉候选，也不会出现不存在的阈值。
+
+平分取更高阈值，靠的是比较符号。从高往低扫，先遇到的总是更高的阈值，所以只在 `loss < best_loss` 时更新。
+
+## 代码
+
+<Solution slug="routing-threshold" />
+
+两种语言分组的写法不同。Python 用 `itertools.groupby` 把排好序的相邻同分记录分成一组；TypeScript 没有对应的标准库函数，用内层 `while` 一直读到分数变化为止，效果相同。
+
+TypeScript 的 `sort` 不传比较函数时，会把每个元组转成 `"0.9,1"` 这样的字符串再按字典序排，`10` 会排到 `9` 前面，负数的顺序也不对，所以必须传比较函数 `(x, y) => y[0] - x[0]`。另外 `sort` 会原地修改数组，代码先复制一份，不改调用者的输入。正无穷在 Python 里是 `math.inf`，在 TypeScript 里是 `Infinity`。
+
+“同分”按浮点数是否完全相等判断。0.8 和 0.80000001 是两个不同的分数，会被当成两批。
+
+## 复杂度
+
+n 是验证集的记录条数。
+
+- **时间 O(n log n)**：排序 O(n log n)，之后扫一遍 O(n)。
+- **空间 O(n)**：排序后的副本占 n 项，其余只有几个变量。
+
+## 自测：两个容易写错的地方
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+`[(0.9, 1), (0.8, 1), (0.8, 0), (0.2, 1)]`，`fp = 4`，`fn = 2`，正确答案是 `(0.9, 4)`。
+
+- 如果你得到 `(0.8, 2)`，是在同分的一批还没结算完时就更新了最优值。
+- 如果你得到 `(0.2, 4)`，是比较时用了 `<=`，平分时换成了更低的阈值。
+</Aside>
+
+本页代码还和“逐个枚举候选阈值、重新数错误”的暴力写法在 2000 组随机输入上对拍过，随机分数只从 6 个值里取，专门制造大量同分。
+
+## 延伸：误调用的代价变大，最优阈值往哪边走？
+
+保持 `fn = 2`，只改 `fp`。样例 1 的各阈值损失：
+
+| `fp` | +∞ | 0.9 | 0.8 | 0.2 | 输出 |
+|---|---|---|---|---|---|
+| 1 | 6 | 4 | 3 | 1 | `(0.2, 1)` |
+| 2 | 6 | 4 | 4 | 2 | `(0.2, 2)` |
+| 3 | 6 | 4 | 5 | 3 | `(0.2, 3)` |
+| 4 | 6 | 4 | 6 | 4 | `(0.9, 4)` |
+| 5 | 6 | 4 | 7 | 5 | `(0.9, 4)` |
+
+`fp` 从 3 加到 4，最优阈值从 0.2 跳到 0.9。`fp` 越大，阈值只会不变或升高，不会降低。
+
+取两个阈值 t₁ > t₂。从 t₁ 降到 t₂ 多调用了 P 个正例、N 个负例，损失变化是 `N × fp − P × fn`。`fp` 变大，这个变化只会变大，低阈值只会更不划算。原来输给高阈值的低阈值，`fp` 变大后仍然输。
+
+样例里 0.2 比 0.9 多调用 2 个正例、1 个负例，变化是 `fp − 4`。`fp < 4` 时 0.2 更好，`fp = 4` 时平分取 0.9，`fp > 4` 时 0.9 更好。
+
+原解法不用改，换个 `fp` 重新调用即可。要对很多个 `fp` 求答案时，排序只做一次，每个 `fp` 再扫一遍。
+
+在同一份验证集上选阈值、又在上面报告最小代价，数字会偏乐观，因为阈值就是照着这份数据挑的。报告效果要换一批没参与选阈值的数据。
+
+## 参考
+
+- [scikit-learn 文档 · Tuning the decision threshold for class prediction](https://scikit-learn.org/stable/modules/classification_threshold.html)
+- [Fawcett. An introduction to ROC analysis（2006），其中生成 ROC 曲线的算法同样按分数排序扫描、同分一起处理](https://doi.org/10.1016/j.patrec.2005.10.010)
+- 同样要把同分样本一起处理的题：<ProblemLink slug="auc-with-ties" />

@@ -1,0 +1,173 @@
+---
+title: 缓存满了，应该丢掉哪次工具查询
+description: 手写 LRU 缓存：哈希表找节点，双向链表维护使用顺序，读写都是平均 O(1)。
+sidebar:
+  label: 14. 缓存满了丢掉哪次查询
+  order: 14
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Graph, Grid, Stepper, Step } from '~/components/viz';
+
+export function chain(items) {
+  const all = [{ id: 'head', label: 'head', tone: 'ghost' }, ...items, { id: 'tail', label: 'tail', tone: 'ghost' }];
+  const nodes = all.map((n, i) => ({ ...n, shape: 'rect', w: 60, x: 36 + i * 104, y: 36 }));
+  const edges = [];
+  for (let i = 0; i + 1 < all.length; i++) {
+    edges.push({ from: all[i].id, to: all[i + 1].id, bend: -12 });
+    edges.push({ from: all[i + 1].id, to: all[i].id, bend: -12, dashed: true });
+  }
+  return { nodes, edges };
+}
+export const frames = [
+  {
+    list: [], map: [], hit: null,
+    caption: '容量 2。一开始链表里只有两个哨兵 `head` 和 `tail`，互相指着；哈希表是空的。',
+  },
+  {
+    list: [{ id: 'A', label: 'A:8', tone: 'strong' }], map: [['A', 'A:8']], hit: 0,
+    caption: '`put(A, 8)`：表里没有 A，新建节点，接到 `tail` 前面，表里记下 `A → 节点`。共 1 个键。',
+  },
+  {
+    list: [{ id: 'A', label: 'A:8' }, { id: 'B', label: 'B:9', tone: 'strong' }], map: [['A', 'A:8'], ['B', 'B:9']], hit: 1,
+    caption: '`put(B, 9)`：同样接到 `tail` 前面。现在从左到右是 A、B，A 是最久没用的。',
+  },
+  {
+    list: [{ id: 'B', label: 'B:9' }, { id: 'A', label: 'A:8', tone: 'strong' }], map: [['A', 'A:8'], ['B', 'B:9']], hit: 0,
+    caption: '`get(A)` 返回 8。读也算使用：摘下 A（`head` 和 B 直接互指），再接到 `tail` 前面。顺序变成 B、A。',
+  },
+  {
+    list: [{ id: 'B', label: 'B:9', tone: 'accent' }, { id: 'A', label: 'A:8' }, { id: 'C', label: 'C:7', tone: 'strong' }], map: [['A', 'A:8'], ['B', 'B:9'], ['C', 'C:7']], hit: 2,
+    caption: '`put(C, 7)`：C 接到最右边，键数变成 3，超过容量 2。要淘汰的是 `head.next`，也就是 B。',
+  },
+  {
+    list: [{ id: 'A', label: 'A:8' }, { id: 'C', label: 'C:7' }], map: [['A', 'A:8'], ['C', 'C:7']], hit: null,
+    caption: '摘掉 B，并用节点里存的键 `B` 把它从哈希表里删掉。剩下 A、C。',
+  },
+  {
+    list: [{ id: 'A', label: 'A:8' }, { id: 'C', label: 'C:7' }], map: [['A', 'A:8'], ['C', 'C:7']], hit: null,
+    caption: '`get(B)`：哈希表里查不到 B，返回 `None`。链表不动。',
+  },
+  {
+    list: [{ id: 'C', label: 'C:7' }, { id: 'A', label: 'A:8', tone: 'strong' }], map: [['A', 'A:8'], ['C', 'C:7']], hit: 0,
+    caption: '`get(A)` 返回 8，A 挪到最右边，顺序变成 C、A。下次再挤，挤掉的是 C。',
+  },
+  {
+    list: [{ id: 'A', label: 'A:8', tone: 'warn' }, { id: 'B', label: 'B:9' }, { id: 'C', label: 'C:7' }], map: [['A', 'A:8'], ['B', 'B:9'], ['C', 'C:7']], hit: null,
+    caption: '如果 `get` 只返回值、不挪位置，写 C 时顺序是 A、B、C，淘汰的是刚读过的 A。之后 `get(B)` 错得到 9，`get(A)` 错得到 `None`。',
+  },
+];
+
+<ProblemMeta slug="lru-cache" />
+
+## 题目
+
+实现一个容量为 `capacity` 的缓存类 `LRUCache`，`capacity` 是非负整数。键是查询字符串，值是整数。
+
+- `get(key)`：键存在时返回值，不存在返回 `None`（TypeScript 返回 `null`）。
+- `put(key, value)`：写入新键，或者覆盖已有键的值。
+
+- 成功的 `get` 和每一次 `put` 都算使用这个键一次。
+- 键数超过容量时，淘汰**上一次使用距今最久**的键。这种策略叫 LRU（Least Recently Used）。
+- 两个操作都要平均 O(1)。
+- `capacity` 为负数时，构造函数抛出 `ValueError`（TypeScript 抛 `RangeError`）。
+
+自己维护使用顺序，不要直接用语言自带的有序字典。
+
+## 样例
+
+容量 2，依次执行：
+
+| 操作 | 返回 | 执行后从旧到新 |
+|---|---|---|
+| `put(A, 8)` | — | A |
+| `put(B, 9)` | — | A, B |
+| `get(A)` | `8` | B, A |
+| `put(C, 7)` | — | A, C（B 被淘汰） |
+| `get(B)` | `None` | A, C |
+| `get(A)` | `8` | C, A |
+
+第三步 `get(A)` 把 A 变成最近用过的，所以写 C 时挤掉的是 B。如果读操作不更新顺序，挤掉的会是 A，后两次 `get` 的结果正好反过来：`get(B)` 得到 9，`get(A)` 得到 `None`。
+
+## 思路
+
+用哈希表加双向链表。所有键按上一次使用的时间从旧到新排成一列：淘汰时丢最左边的，每次使用把这个键挪到最右边。
+
+用 Python 列表也能排这一列，但挪一个键要先找到它，再抽出来，后面的元素全部前移一格，都是 O(n)。做到 O(1) 要靠两样东西配合：
+
+- 双向链表负责顺序。每个节点同时知道前一个（`prev`）和后一个（`next`）。抽出一个节点只要让它的前后两个邻居直接互指，不用移动别的节点。
+- 哈希表负责定位。从键直接拿到它在链表里的节点，不用从头找。
+
+链表两端各放一个不存数据的空节点，叫**哨兵**：`head` 和 `tail`。真正的数据节点都夹在它们中间。这样每个数据节点都有前驱和后继，“摘下节点”和“接到 `tail` 前面”各写一种情况就够，不用单独处理链表为空、删的是第一个。
+
+把样例的六个操作走一遍。上方实线箭头是 `next`，下方虚线箭头是 `prev`。
+
+<Stepper title="容量 2：哈希表和双向链表一起变化">
+  {frames.map((f) => {
+    const g = chain(f.list);
+    return (
+      <Step caption={f.caption}>
+        <p class="viz-row-label">双向链表（左旧右新）</p>
+        <Graph nodes={g.nodes} edges={g.edges} width={520} height={74} />
+        <p class="viz-row-label">哈希表</p>
+        <Grid
+          rowHeaders={['键', '节点']}
+          rows={f.map.length ? [f.map.map((m) => m[0]), f.map.map((m) => m[1])] : [['—'], ['—']]}
+          cellWidth={54}
+          tones={f.hit === null ? {} : { [`0,${f.hit}`]: 'strong', [`1,${f.hit}`]: 'strong' }}
+        />
+      </Step>
+    );
+  })}
+</Stepper>
+
+节点里还要存一份键。淘汰时手里只有 `head.next` 这个节点，要从哈希表里删掉它，得知道它的键。不存键就只能遍历哈希表去找，又回到 O(n)。
+
+覆盖已有的键时，键数不变。容量 2 已经放了 A 和 B，再 `put(A, 10)`：摘下 A 的节点、改值、接到最右边。键数仍是 2，不淘汰，B 留着。如果把覆盖当成新写入，先建节点再判断超容量，就会误挤掉 B。
+
+容量为 0 时，`put` 先接上节点，键数变成 1，超过 0，立刻淘汰的就是它自己。之后 `get` 一律返回 `None`，不用写特殊分支。
+
+## 代码
+
+<Solution slug="lru-cache" />
+
+两个版本结构一样，都只用了三个私有操作：摘下节点、接到最右边、淘汰最左边。TypeScript 里节点的 `prev`/`next` 类型是 `Node | null`，链表操作时用 `!` 断言非空；哨兵保证了这些位置真的不会是 `null`。哈希表用 `Map`，不要用普通对象：普通对象的键 `__proto__`、`constructor` 会碰到原型链上的同名属性。
+
+## 复杂度
+
+c 是容量，`get` 和 `put` 的总次数记为 q。
+
+- **时间**：每次操作平均 O(1)。哈希表查找、插入、删除平均 O(1)，链表的摘下和接上各改 4 个指针。q 次操作共 O(q)。
+- **空间 O(c)**：哈希表和链表里各有至多 c 个键（写入的瞬间是 c + 1 个，随即淘汰一个），再加两个哨兵。
+
+## 自测：覆盖已有的键
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+容量 2，依次 `put(A, 8)`、`put(B, 9)`、`put(A, 10)`、`put(C, 7)`，再 `get(B)`、`get(A)`、`get(C)`。正确结果是 `None`、`10`、`7`。
+
+`put(A, 10)` 把 A 变成了最近使用的，所以写 C 时淘汰的是 B。如果你得到 `9`、`None`、`7`，说明覆盖旧键时只改了值，没有把 A 挪到最右边。如果在 `put(A, 10)` 这一步 B 就没了，是把覆盖当成了新写入。
+</Aside>
+
+本页代码对容量 0、容量 1、读不存在的键、值为 0 的键，以及一组 200 次随机操作（和“用列表维护顺序”的慢写法对拍）都跑过测试。
+
+## 延伸：允许用有序字典，能写多短？
+
+如果不限制，语言自带的有序容器几行就能写完。
+
+Python 的 `OrderedDict` 记得插入顺序，还提供两个现成的 O(1) 操作：`move_to_end(key)` 把键挪到最后，`popitem(last=False)` 弹出最前面的键。它的内部实现也是“哈希表 + 双向链表”。
+
+JavaScript 的 `Map` 也按插入顺序遍历，`map.keys().next().value` 就是最旧的键。有一个差别要小心：对已有的键再 `set`，**位置不会变**。所以“使用一次”要写成先 `delete` 再 `set`。
+
+<Solution slug="lru-cache" file="followup" />
+
+两个短版本和手写链表版跑同一组测试，另外各做了 300 组随机操作对拍，结果一致。日常用短版本就行。手写版本说清了 O(1) 从哪来；别的需要按某种顺序快速摘取的结构也这样拼，例如 LFU 缓存给每个使用频次挂一条链表。
+
+## 参考
+
+- [力扣 146 · LRU 缓存](https://leetcode.cn/problems/lru-cache/)
+- [Python 文档 · `collections.OrderedDict`](https://docs.python.org/3/library/collections.html#collections.OrderedDict)
+- [MDN · `Map`](https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/Map)：说明了按插入顺序遍历的规则
+- 同样是按时间查记录的数据结构：<ProblemLink slug="time-travel-kv" />

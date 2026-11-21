@@ -1,0 +1,19 @@
+{
+  "python": "exclusive_time",
+  "typescript": "exclusiveTime",
+  "kind": "function",
+  "cases": [
+    {"name": "样例 1：子调用期间父调用暂停", "args": [[[0, "A", "start"], [2, "B", "start"], [4, "B", "end"], [5, "A", "end"]]], "expected": {"A": 3, "B": 2}},
+    {"name": "样例 2：递归、同一时刻两条事件、中间有空闲", "args": [[[0, "agent", "start"], [1, "search", "start"], [3, "search", "end"], [3, "agent", "start"], [5, "agent", "end"], [6, "agent", "end"], [8, "search", "start"], [9, "search", "end"]]], "expected": {"agent": 4, "search": 3}},
+    {"name": "空日志", "args": [[]], "expected": {}},
+    {"name": "开始即结束，耗时 0", "args": [[[4, "ping", "start"], [4, "ping", "end"]]], "expected": {"ping": 0}},
+    {"name": "自己调自己，不能重复计", "args": [[[0, "A", "start"], [2, "A", "start"], [5, "A", "end"], [7, "A", "end"]]], "expected": {"A": 7}},
+    {"name": "空闲时间不归任何工具", "args": [[[0, "A", "start"], [1, "A", "end"], [4, "B", "start"], [6, "B", "end"]]], "expected": {"A": 1, "B": 2}},
+    {"name": "三层嵌套", "args": [[[0, "plan", "start"], [1, "search", "start"], [2, "fetch", "start"], [6, "fetch", "end"], [7, "search", "end"], [10, "plan", "end"]]], "expected": {"plan": 4, "search": 2, "fetch": 4}},
+    {"name": "end 与栈顶不匹配", "args": [[[0, "A", "start"], [1, "B", "start"], [2, "A", "end"], [3, "B", "end"]]], "raises": true},
+    {"name": "有调用没结束", "args": [[[0, "A", "start"], [1, "B", "start"], [2, "B", "end"]]], "raises": true},
+    {"name": "时间倒退", "args": [[[5, "A", "start"], [3, "A", "end"]]], "raises": true},
+    {"name": "多余的 end", "args": [[[0, "A", "end"]]], "raises": true},
+    {"name": "随机 60+ 条嵌套日志（与逐段模拟对拍）", "args": [[[0, "search", "start"], [1, "search", "end"], [4, "calc", "start"], [5, "calc", "end"], [8, "search", "start"], [9, "search", "start"], [9, "search", "end"], [9, "search", "end"], [11, "search", "start"], [12, "fetch", "start"], [13, "calc", "start"], [14, "calc", "end"], [16, "fetch", "start"], [16, "fetch", "start"], [16, "fetch", "end"], [17, "fetch", "end"], [17, "fetch", "end"], [20, "search", "end"], [23, "fetch", "start"], [26, "search", "start"], [27, "search", "end"], [28, "calc", "start"], [28, "calc", "end"], [28, "fetch", "start"], [30, "calc", "start"], [30, "search", "start"], [33, "search", "end"], [36, "search", "start"], [39, "search", "end"], [41, "search", "start"], [41, "search", "end"], [44, "fetch", "start"], [47, "fetch", "end"], [47, "calc", "start"], [49, "calc", "end"], [49, "calc", "end"], [50, "search", "start"], [50, "fetch", "start"], [53, "fetch", "end"], [54, "search", "end"], [54, "fetch", "start"], [57, "calc", "start"], [60, "calc", "end"], [60, "fetch", "end"], [62, "fetch", "start"], [62, "plan", "start"], [65, "plan", "end"], [68, "search", "start"], [68, "search", "end"], [68, "fetch", "end"], [71, "search", "start"], [71, "search", "start"], [74, "search", "end"], [77, "search", "end"], [77, "fetch", "end"], [80, "fetch", "end"], [82, "calc", "start"], [84, "calc", "end"], [86, "search", "start"], [86, "fetch", "start"], [87, "fetch", "end"], [87, "search", "end"]]], "expected": {"search": 20, "calc": 17, "fetch": 32, "plan": 3}}
+  ]
+}

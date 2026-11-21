@@ -1,0 +1,169 @@
+---
+title: 一分钟最多接三次，哪些请求会放行
+description: 用一个只装已放行时间的队列维护滑动窗口 (t−w, t]，逐个判断请求能否放行，总时间 O(n)。
+sidebar:
+  label: 26. 一分钟最多接三次
+  order: 26
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, ArrayCells, Grid, Stepper, Step } from '~/components/viz';
+import WindowTimeline from '~/components/figures/sliding-window-rate-limit/WindowTimeline.astro';
+
+export const times = [0, 0, 59, 59, 60, 60, 60];
+export const pieces = [[-2, 2], [57, 61]];
+export const frames = [
+  {
+    tones: ['strong'], win: [-60, 0], ok: true,
+    queue: [0], queueTones: ['strong'],
+    caption: '请求 1 在第 0 秒到达，窗口是 (−60, 0]。队列是空的，0 < 3，放行，把 0 放进队尾。',
+  },
+  {
+    tones: ['accent', 'strong'], win: [-60, 0], ok: true,
+    queue: [0, 0], queueTones: [null, 'strong'],
+    caption: '请求 2 也在第 0 秒。队列里有 1 个，1 < 3，放行。同一秒的两次各占一个名额，队列里是两个 0。',
+  },
+  {
+    tones: ['accent', 'accent', 'strong'], win: [-1, 59], ok: true,
+    queue: [0, 0, 59], queueTones: [null, null, 'strong'],
+    caption: '请求 3 在第 59 秒，窗口是 (−1, 59]。队头的 0 > −1，还在窗口里。队列有 2 个，放行。',
+  },
+  {
+    tones: ['accent', 'accent', 'accent', 'ghost'], win: [-1, 59], ok: false,
+    queue: [0, 0, 59], queueTones: [],
+    caption: '请求 4 也在第 59 秒。队列已经有 3 个，3 < 3 不成立，拒绝。被拒绝的请求不进队列，画成虚线。',
+  },
+  {
+    tones: ['done', 'done', 'accent', 'ghost', 'strong'], win: [0, 60], ok: true,
+    queue: [0, 0, 59, 60], queueTones: ['muted', 'muted', null, 'strong'],
+    caption: '请求 5 在第 60 秒，窗口是 (0, 60]，不含 0。两个 0 都满足 `0 <= 60 − 60`，出队。只剩 59，放行。',
+  },
+  {
+    tones: ['done', 'done', 'accent', 'ghost', 'accent', 'strong'], win: [0, 60], ok: true,
+    queue: [59, 60, 60], queueTones: [null, null, 'strong'],
+    caption: '请求 6 也在第 60 秒。队列里是 59 和 60 两个，放行。',
+  },
+  {
+    tones: ['done', 'done', 'accent', 'ghost', 'accent', 'accent', 'ghost'], win: [0, 60], ok: false,
+    queue: [59, 60, 60], queueTones: [],
+    caption: '请求 7 还在第 60 秒，队列又满了，拒绝。最终答案是 [真, 真, 真, 假, 真, 真, 假]。',
+  },
+];
+
+<ProblemMeta slug="sliding-window-rate-limit" />
+
+## 题目
+
+一个工具接口要限流：任意时刻往前看 `w` 秒，放行的请求不能超过 `limit` 个。
+
+- 输入：到达时间 `times`（整数秒，非递减，可以重复，可以为空），以及 `w` 和 `limit`。
+- 时刻 `t` 到达的请求：算上它之后，区间 `(t − w, t]` 里放行的请求不超过 `limit` 个就放行，否则拒绝。
+- 区间左开右闭：恰好在 `t − w` 到达的请求不算。
+- 被拒绝的请求不占名额。
+- 输出：按输入顺序，每个请求是否放行。
+- `w` 是正整数，`limit` 是非负整数。`w ≤ 0`、`limit < 0` 或时间不是非递减时，抛出异常。
+
+## 样例
+
+| `times` | `w` | `limit` | 输出 |
+|---|---|---|---|
+| `[0, 0, 59, 59, 60, 60, 60]` | 60 | 3 | `[真, 真, 真, 假, 真, 真, 假]` |
+| `[10, 10, 10, 10]` | 60 | 3 | `[真, 真, 真, 假]` |
+| `[1, 2, 3]` | 5 | 0 | `[假, 假, 假]` |
+
+样例 1 在第 60 秒放行两次，因为区间左开右闭，第 0 秒的两个请求恰好离开窗口。写成闭区间 `[t − w, t]`，第 60 秒的三次都会被拒绝。样例 2 防的是用集合去重：同一秒的四次请求要各算一次。
+
+## 思路
+
+用一个队列存放行过的请求时间。每来一个请求，先从队头弹出已经离开窗口的，再看队列长度是否小于 `limit`。
+
+每次都把放行过的请求从头数一遍也行，但 n 个请求要数 n 遍，O(n²)。时间非递减，窗口左端 `t − w` 只往右走，一个时间离开窗口后就再也回不来。所以只留还在窗口里的，按从早到晚排成队列：
+
+1. 请求在 `t` 到达时，从队头弹出 `<= t − w` 的时间。队头没过期，后面的更晚，也没过期，可以停。
+2. 剩下的是窗口里的放行请求。个数小于 `limit` 就放行，把 `t` 放进队尾；否则拒绝，队列不动。
+
+用样例 1 走一遍。时间轴中间折断，只画 0 秒和 60 秒附近；浅色带子是当前窗口。
+
+<Stepper title="w = 60，limit = 3，七个请求">
+  {frames.map((f, k) => (
+    <Step caption={f.caption}>
+      <WindowTimeline
+        pieces={pieces}
+        scale={40}
+        stack={3}
+        requests={f.tones.map((tone, i) => ({ t: times[i], label: String(i + 1), tone }))}
+        window={{ from: f.win[0], to: f.win[1], label: `(${String(f.win[0]).replace('-', '−')}, ${f.win[1]}]` }}
+        pointer={{ t: times[k], label: f.ok ? '放行' : '拒绝', tone: f.ok ? 'accent' : 'default' }}
+      />
+      <ArrayCells label="队列" values={f.queue} tones={f.queueTones} index={false} cell={46} />
+    </Step>
+  ))}
+</Stepper>
+
+看第 5 步。第 60 秒时 `t − w = 0`，队头两个 0 都满足 `0 <= 0`，一次弹出两个。窗口里只剩 59，所以能连着放行两个 60。
+
+队列里只放放行的请求。请求 4 被拒绝，没有进队，第 60 秒就不占名额。如果改成被拒绝的也算一次，每个请求都要进队，高峰期队列会比 `limit` 长；样例 1 的答案会变成 `[真, 真, 真, 假, 真, 假, 假]`。
+
+## 代码
+
+<Solution slug="sliding-window-rate-limit" />
+
+Python 用 `collections.deque`，队头出队是 O(1)。JavaScript 数组的 `shift()` 要把后面的元素整体前移，是 O(队列长度)，所以 TypeScript 版用一个下标 `head` 指向队头，出队只是 `head++`；出队的元素超过一半时再用 `splice` 整体挪一次，免得数组越积越长。
+
+时间是整数秒，`t − w` 的比较是精确的。如果时间改成带小数的秒，两种语言都会遇到浮点误差，例如 `0.3 − 0.1` 不等于 `0.2`；更稳妥的做法是先换算成整数毫秒。
+
+## 复杂度
+
+n 是请求个数，limit 是窗口里最多放行的个数。
+
+- **时间 O(n)**：每个放行的时间最多进队一次、出队一次，被拒绝的请求只做一次比较。
+- **空间 O(min(n, limit))**：队列里任何时刻最多有 `limit` 个时间，因为超过就不会放行；返回的布尔列表不计入。
+
+## 自测：左端点和同一秒的请求
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+样例 1 `[0, 0, 59, 59, 60, 60, 60]`、`w = 60`、`limit = 3` 的正确答案是 `[真, 真, 真, 假, 真, 真, 假]`。如果后三个全是假，多半是出队条件写成了 `active[0] < t - w`，把恰好在 `t − w` 的请求留在了窗口里。
+
+`[10, 10, 10, 10]`、`w = 60`、`limit = 3` 的正确答案是 `[真, 真, 真, 假]`。如果四个全是真，是用集合存了时间，同一秒的请求被合并成了一个。
+</Aside>
+
+## 延伸：换成令牌桶，结果有什么不同？
+
+另一种常见的限流方式是令牌桶：桶里最多放 `limit` 个令牌，每过 `w` 秒匀速补充 `limit` 个，开始时桶是满的；每个请求拿走一个令牌，拿不到就拒绝。平均速率和滑动窗口一样，都是每 60 秒 3 个，也就是每 20 秒补 1 个。
+
+用样例 1 的数据跑一遍：
+
+- 第 0 秒：桶里 3 个，两个请求拿走 2 个，剩 1 个。
+- 第 59 秒：过了 59 秒，补了 59 × 3 / 60 = 2.95 个，1 + 2.95 超过容量，桶里是满的 3 个。两个请求都放行，剩 1 个。
+- 第 60 秒：又补了 0.05 个，变成 1.05 个。第一个请求放行，剩 0.05 个，后两个拒绝。
+
+<Figure caption="同一组请求，两种限流的结果只差请求 4。令牌桶在第 59 秒已经补满，放行了它；滑动窗口里 (−1, 59] 已有 3 个，拒绝。">
+  <Grid
+    rows={[
+      [0, 0, 59, 59, 60, 60, 60],
+      ['真', '真', '真', '假', '真', '真', '假'],
+      [3, 2, 3, 2, 1.05, 0.05, 0.05],
+      ['真', '真', '真', '真', '真', '假', '假'],
+    ]}
+    rowHeaders={['到达时间', '滑动窗口', '到达时的令牌', '令牌桶']}
+    colHeaders={[1, 2, 3, 4, 5, 6, 7]}
+    corner="请求"
+    tones={{ '1,3': 'accent', '3,3': 'accent' }}
+    cellWidth={54}
+  />
+</Figure>
+
+令牌桶的答案是 `[真, 真, 真, 真, 真, 假, 假]`。两者保证的东西不同：滑动窗口保证任意 `w` 秒内放行不超过 `limit` 个；令牌桶只保证长期平均速率，允许一次用掉攒满的桶。这里 `[0, 59]` 这 60 秒里放行了 4 个请求，超过了滑动窗口的上限。最坏情况下，令牌桶在任意 `w` 秒内放行的数量接近 `2 × limit`：开头先用掉满桶的 `limit` 个，这 `w` 秒里又补进来 `limit` 个。
+
+令牌桶只需要记两个数：当前令牌数和上次更新的时间，空间 O(1)，不用存每个请求的时间。下面的实现把令牌按 `1/w` 个为单位记账，令牌数乘上 `w` 后全是整数，避免 2.95、0.05 这样的小数带来浮点误差。
+
+<Solution slug="sliding-window-rate-limit" file="followup" />
+
+## 参考
+
+- [力扣 933 · 最近的请求次数](https://leetcode.cn/problems/number-of-recent-calls/)：同样用队列维护最近一段时间的请求。
+- [Token bucket（维基百科）](https://en.wikipedia.org/wiki/Token_bucket)：令牌桶的定义和它允许的突发量。
+- 同一类“窗口只往右走”的题：<ProblemLink slug="longest-unique-substring" />、<ProblemLink slug="shortest-evidence-window" />

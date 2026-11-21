@@ -1,0 +1,158 @@
+---
+title: 三篇小文档，手算 BM25 排序
+description: 按 BM25 公式给每篇文档打分：idf 看词有多罕见，词频部分会饱和，长文档会被打折。
+sidebar:
+  label: 4. 手算 BM25 排序
+  order: 4
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Grid, Bars } from '~/components/viz';
+import TermStack from '~/components/figures/bm25/TermStack.astro';
+
+export const part = 0.5077717780244109;
+export const catD2 = 0.5862931869972579;
+
+<ProblemMeta slug="bm25" />
+
+## 题目
+
+文档和查询都是用空格分好词的字符串。算出每篇文档和查询的 BM25 分数，按文档原来的顺序返回。
+
+记 N 为文档篇数，dl 为当前文档的词数，avgdl 为所有文档的平均词数。查询词**先去重**。对每个查询词 w，设 f 是 w 在当前文档里出现的次数，df 是含有 w 的文档篇数：
+
+- idf(w) = ln(1 + (N − df + 0.5) / (df + 0.5))
+- 词频部分 = f × (k1 + 1) / (f + k1 × (1 − b + b × dl / avgdl))
+- 这个词的得分 = idf(w) × 词频部分；f = 0 时得 0。
+
+文档的分数是各查询词得分之和。参数默认 `k1 = 1.2`、`b = 0.75`。
+
+- 没有文档时返回空列表；所有文档都是空串时，每篇得 0。
+- 查询为空，或查询词都不在任何文档里，每篇得 0。
+- `k1 < 0`，或 `b` 不在 0 到 1 之间，抛出 `ValueError`（TypeScript 版抛出 `Error`）。
+
+## 样例
+
+文档是 `["cat sat mat", "dog sat log", "cat cat ran far away"]`，下面记作 d0、d1、d2。
+
+| `query` | 参数 | 输出（保留 4 位） | 次序 |
+|---|---|---|---|
+| `"cat sat"` | 默认 | `[1.0155, 0.5078, 0.5863]` | d0 > d2 > d1 |
+| `"cat sat"` | `b = 0` | `[0.9400, 0.4700, 0.6463]` | d0 > d2 > d1 |
+| `"cat cat sat"` | 默认 | `[1.0155, 0.5078, 0.5863]` | 和第一行相同 |
+
+d2 有两个 `cat`，d1 只有一个 `sat`，d2 却只比 d1 高 0.08。这是 BM25 有意的设计，思路里会拆开算。第三行检查查询词去重：`cat` 写了两遍，只算一次。
+
+## 思路
+
+先算所有文档共用的 N、df、avgdl，再逐篇按公式累加。每个词的得分是两部分相乘：idf 看这个词有多罕见，词频部分看它在这篇文档里出现了多少。
+
+先算共用的量。N = 3。`cat` 出现在 d0、d2 两篇里，df = 2；`sat` 出现在 d0、d1 两篇里，df = 2。d2 里有两个 `cat`，但 df 数的是篇数，只算 1 篇。三篇的词数是 3、3、5，avgdl = 11/3 ≈ 3.667。
+
+两个词的 df 相同，idf 也相同：ln(1 + (3 − 2 + 0.5)/(2 + 0.5)) = ln 1.6 ≈ 0.470。出现在每篇文档里的词区分力弱，idf 更小；只出现在一篇里的词，idf 更大。
+
+再算长度系数，也就是公式分母里的 1 − b + b × dl / avgdl。d0、d1 有 3 个词，系数是 1 − 0.75 + 0.75 × 3/3.667 ≈ 0.864，比 1 小，短文档占便宜。d2 有 5 个词，系数 ≈ 1.273，比 1 大，长文档吃亏。
+
+最后逐篇打分：
+
+- d0：`cat` 出现 1 次，词频部分 = 1 × 2.2 / (1 + 1.2 × 0.864) ≈ 1.080，乘 idf 得 0.508。`sat` 也是 0.508。合计 1.0155。
+- d1：只有 `sat`，和 d0 的长度相同，得 0.508。
+- d2：`cat` 出现 2 次，词频部分 = 2 × 2.2 / (2 + 1.2 × 1.273) ≈ 1.247，乘 idf 得 0.586。没有 `sat`。
+
+<Figure caption="每篇文档的分数按查询词拆开，强调色是 `cat`，灰色是 `sat`。d2 的两个 `cat` 只拿到 0.586，比 d1 的一个 `sat`（0.508）多不了多少。">
+  <TermStack
+    max={1.0155435560488217}
+    rows={[
+      { label: 'd0', parts: [{ term: 'cat', value: part, tone: 'accent' }, { term: 'sat', value: part }] },
+      { label: 'd1', parts: [{ term: 'sat', value: part }] },
+      { label: 'd2', parts: [{ term: 'cat', value: catD2, tone: 'accent' }] },
+    ]}
+  />
+</Figure>
+
+<Figure caption="三篇文档的计算过程。“词频部分”乘以 idf（两个词都是 ln 1.6 ≈ 0.470）就是这个词的得分。">
+  <Grid
+    rowHeaders={['d0', 'd1', 'd2']}
+    colHeaders={['dl', '长度系数', 'cat 的 f', 'cat 词频部分', 'sat 的 f', 'sat 词频部分', '总分']}
+    rows={[
+      [3, '0.864', 1, '1.080', 1, '1.080', '1.0155'],
+      [3, '0.864', 0, '—', 1, '1.080', '0.5078'],
+      [5, '1.273', 2, '1.247', 0, '—', '0.5863'],
+    ]}
+    cellWidth={84}
+    tones={{ '0,6': 'accent', '1,6': 'soft', '2,6': 'soft', '2,1': 'soft', '2,3': 'soft' }}
+  />
+</Figure>
+
+两个 `cat` 拿不到两倍的分，原因有两个。
+
+第一个是词频饱和。把长度系数固定为 1，词频部分是 f × 2.2 / (f + 1.2)：f = 1 时是 1.0，f = 2 时是 1.375，f = 6 时是 1.833。它越来越接近上限 k1 + 1 = 2.2，但到不了。一个词出现 20 次，不会比出现 10 次相关多少。k1 控制饱和的快慢：k1 = 0 时词频部分恒为 1，只看出现没出现；k1 越大，越接近“出现几次就算几倍”。
+
+<Figure caption="长度系数为 1 时，词频部分随出现次数 f 的变化。最右边的淡色条是上限 k1 + 1 = 2.2，f 再大也到不了。">
+  <Bars
+    max={2.2}
+    digits={3}
+    items={[
+      { label: 'f = 1', value: 1.0, tone: 'accent', text: '1.000' },
+      { label: 'f = 2', value: 1.375, tone: 'accent' },
+      { label: 'f = 3', value: 1.5714285714285714 },
+      { label: 'f = 4', value: 1.6923076923076923 },
+      { label: 'f = 5', value: 1.7741935483870968 },
+      { label: 'f = 6', value: 1.8333333333333333 },
+      { label: 'k1 + 1', value: 2.2, tone: 'muted', text: '上限 2.2' },
+    ]}
+  />
+</Figure>
+
+第二个是长度惩罚。长文档词多，碰巧含有某个词的机会也多，所以同样的 f，长文档的词频部分更低。d2 的长度系数 1.273 把 f = 2 的词频部分从 1.375 压到了 1.247。b 决定惩罚力度：b = 0 时长度系数恒为 1，不看长度，d2 的 `cat` 得 0.470 × 1.375 ≈ 0.646，就是样例第二行的 0.6463；b = 1 时完全按长度比例打折。
+
+## 代码
+
+<Solution slug="bm25" />
+
+两个版本的计算顺序一致，浮点结果逐位相同。细节上的差别：
+
+- Python 的 `str.split()` 不带参数时按连续空白切分，并丢掉首尾空白；JavaScript 的 `split(' ')` 遇到连续空格会切出空串，所以 TypeScript 版用正则 `/\s+/` 切分后再过滤空串。
+- 查询词去重时，Python 用 `dict.fromkeys` 保留原顺序，TypeScript 用 `new Set`，`Set` 本身就按插入顺序迭代。去重后顺序不影响分数，但固定的顺序让浮点加法的次序也固定。
+- `Counter` 查不到的键返回 0，TypeScript 的 `Map.get` 返回 `undefined`，要写 `?? 0`。
+
+## 复杂度
+
+L 是所有文档的总词数，N 是文档篇数，q 是去重后的查询词数。
+
+- **时间 O(L + N·q)**：切词、统计 df 和每篇的词频各扫一遍所有词，共 O(L)；打分时每篇文档对每个查询词查一次词频表。
+- **空间 O(L)**：切好的词、df 表和词频表，最坏都和总词数同阶。
+
+实际的搜索引擎不会每次查询都扫全部文档，而是提前建好倒排表：每个词对应含有它的文档列表和词频，查询时只访问含查询词的文档。
+
+## 自测：两个容易写错的输入
+
+<Aside type="caution" title="先在纸上算，再跑代码">
+样例文档、`query = "cat sat"`，正确答案约是 `[1.0155, 0.5078, 0.5863]`。如果你得到 `[0.652, 0.5078, 0.1666]`，多半是 df 数的是出现次数而不是篇数：d2 里的两个 `cat` 被算了两次，df(cat) 变成 3，idf 掉到 0.134。
+
+同样的文档、`query = "cat cat sat"`，正确答案和上面一样。如果你得到 `[1.5233, 0.5078, 1.1726]`，说明查询词没有去重，`cat` 的得分被加了两遍。
+</Aside>
+
+测试还覆盖了 `b = 0`、`k1 = 0`、查询词都不命中、空查询、没有文档、所有文档都是空串、文档里有多余空格、非法的 `b`，以及 12 篇随机文档。
+
+## 延伸：教科书上的 idf 没有“1 +”，会怎样？
+
+很多教材把 idf 写成 ln((N − df + 0.5) / (df + 0.5))，括号里没有加 1。df 超过 N/2 时，括号里的数小于 1，idf 成了负数。
+
+样例里 df = 2、N = 3，括号里是 1.5/2.5 = 0.6，idf = ln 0.6 ≈ −0.511。三篇的分数变成约 `[-1.1037, -0.5519, -0.6372]`。d0 命中两个词，扣分最多，从第一掉到最后，次序变成 d1 > d2 > d0。
+
+再看 `["cat sat", "cat ran", "cat dog", "bird flew"]`，查询 `"cat"`。`cat` 出现在 4 篇里的 3 篇。教科书写法下前三篇各得约 −0.847，不含 `cat` 的 `bird flew` 得 0，反而排第一。加了“1 +”之后，前三篇各得约 0.357，`bird flew` 仍是 0。
+
+<Solution slug="bm25" file="followup" />
+
+原解法只换 idf 这一行。“1 +”保证括号里永远大于 1，idf 恒为正，命中查询词只会加分。Lucene 的 BM25 就是这样写的。另一种做法是保留原公式，把负的 idf 截成一个很小的正数，Python 库 rank_bm25 的 `BM25Okapi` 就这样做。不同写法在常见词上的分数差别很大，计算前要先确认用哪种。
+
+## 参考
+
+- Robertson, Zaragoza. [The Probabilistic Relevance Framework: BM25 and Beyond](https://www.staff.city.ac.uk/~sbrp622/papers/foundations_bm25_review.pdf). Foundations and Trends in Information Retrieval, 2009.
+- [Lucene · BM25Similarity](https://lucene.apache.org/core/9_0_0/core/org/apache/lucene/search/similarities/BM25Similarity.html)
+- [rank_bm25 源码](https://github.com/dorianbrown/rank_bm25/blob/master/rank_bm25.py)
+- 把 BM25 和向量检索两路结果合在一起：<ProblemLink slug="rrf-fusion" />；倒排表求交：<ProblemLink slug="posting-list-intersection" />

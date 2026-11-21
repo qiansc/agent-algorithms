@@ -1,0 +1,22 @@
+{
+  "python": "deep_merge",
+  "typescript": "deepMerge",
+  "kind": "function",
+  "cases": [
+    {"name": "样例：递归、列表整体替换、数字换成 dict", "args": [{"model": {"name": "a", "temp": 0.7}, "tools": ["search"], "retry": 1}, {"model": {"temp": 0.2, "top_p": 0.9}, "tools": ["db"], "retry": {"max": 3}}], "expected": {"model": {"name": "a", "temp": 0.2, "top_p": 0.9}, "tools": ["db"], "retry": {"max": 3}}},
+    {"name": "两边都为空", "args": [{}, {}], "expected": {}},
+    {"name": "base 为空", "args": [{}, {"a": {"b": [1]}}], "expected": {"a": {"b": [1]}}},
+    {"name": "override 为空", "args": [{"a": {"b": [1]}}, {}], "expected": {"a": {"b": [1]}}},
+    {"name": "override 写 null：用 null 覆盖整棵子树", "args": [{"a": {"x": 1}}, {"a": null}], "expected": {"a": null}},
+    {"name": "base 是 null、override 是 dict：不递归，直接用新值", "args": [{"a": null}, {"a": {"x": 1}}], "expected": {"a": {"x": 1}}},
+    {"name": "dict 换成列表", "args": [{"a": {"x": 1}}, {"a": [1]}], "expected": {"a": [1]}},
+    {"name": "列表换成 dict", "args": [{"a": [1, 2]}, {"a": {"0": 9}}], "expected": {"a": {"0": 9}}},
+    {"name": "false 和 0 也是有效的新值", "args": [{"stream": true, "n": 5, "stop": "x"}, {"stream": false, "n": 0, "stop": ""}], "expected": {"stream": false, "n": 0, "stop": ""}},
+    {"name": "override 给空 dict：base 那一层原样保留", "args": [{"a": {"x": 1}}, {"a": {}}], "expected": {"a": {"x": 1}}},
+    {"name": "三层嵌套", "args": [{"llm": {"gen": {"temp": 1, "max": 100}, "id": "m"}}, {"llm": {"gen": {"max": 200, "stop": ["\n"]}}}], "expected": {"llm": {"gen": {"temp": 1, "max": 200, "stop": ["\n"]}, "id": "m"}}},
+    {"name": "base 不是 dict", "args": [[], {}], "raises": true},
+    {"name": "override 不是 dict", "args": [{}, null], "raises": true},
+    {"name": "override 是列表", "args": [{"a": 1}, [["a", 2]]], "raises": true},
+    {"name": "随机嵌套配置（与另一种写法对拍）", "args": [{"f": null, "a": {}, "d": {"b": {"e": {"a": 31, "b": 19, "c": [1]}, "c": {"d": null, "f": [4, 5], "e": 76}, "f": 24, "b": [5, 5]}, "f": [], "e": {"a": {"e": [], "c": [1]}, "f": {}, "b": 17}, "a": {"e": 33}}, "e": 37}, {"d": {"b": {"f": 10, "b": {"b": [7, 2], "d": [8], "c": [], "e": null}}, "d": 41}, "e": {"c": [7], "d": [4, 6], "e": {"b": {"f": [1], "d": [0, 1, 3], "b": [1, 0, 3]}, "e": [2]}}, "c": 43}], "expected": {"f": null, "a": {}, "d": {"b": {"e": {"a": 31, "b": 19, "c": [1]}, "c": {"d": null, "f": [4, 5], "e": 76}, "f": 10, "b": {"b": [7, 2], "d": [8], "c": [], "e": null}}, "f": [], "e": {"a": {"e": [], "c": [1]}, "f": {}, "b": 17}, "a": {"e": 33}, "d": 41}, "e": {"c": [7], "d": [4, 6], "e": {"b": {"f": [1], "d": [0, 1, 3], "b": [1, 0, 3]}, "e": [2]}}, "c": 43}}
+  ]
+}

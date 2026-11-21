@@ -1,0 +1,16 @@
+{
+  "python": "longest_unique",
+  "typescript": "longestUnique",
+  "cases": [
+    { "name": "样例 abba：左边界不能往回退", "args": ["abba"], "expected": 2 },
+    { "name": "样例 中文", "args": ["查票查价"], "expected": 3 },
+    { "name": "空串", "args": [""], "expected": 0 },
+    { "name": "单个空格", "args": [" "], "expected": 1 },
+    { "name": "全部相同", "args": ["bbbbb"], "expected": 1 },
+    { "name": "答案在中间", "args": ["pwwkew"], "expected": 3 },
+    { "name": "重复字符隔得很远", "args": ["abcabcbb"], "expected": 3 },
+    { "name": "dvdf：跳过之后还能接上", "args": ["dvdf"], "expected": 3 },
+    { "name": "emoji 按一个字符算", "args": ["a😀a😀b"], "expected": 3 },
+    { "name": "没有重复", "args": ["abcdef"], "expected": 6 }
+  ]
+}

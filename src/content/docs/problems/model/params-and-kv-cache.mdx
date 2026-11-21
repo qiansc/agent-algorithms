@@ -1,0 +1,206 @@
+---
+title: 按配置估算参数量和 KV Cache 显存
+description: 按层拆开数出解码器模型的参数量，再从“一个 token 在一层存多少数”推出 KV Cache 的字节数。
+sidebar:
+  label: 38. 估算参数量和 KV Cache
+  order: 38
+---
+
+import ProblemMeta from '~/components/ProblemMeta.astro';
+import ProblemLink from '~/components/ProblemLink.astro';
+import Solution from '~/components/Solution.astro';
+import { Aside } from '@astrojs/starlight/components';
+import { Figure, Grid } from '~/components/viz';
+import StackedBar from '~/components/figures/params-and-kv-cache/StackedBar.astro';
+
+<ProblemMeta slug="params-and-kv-cache" />
+
+## 题目
+
+按配置算出一个解码器 Transformer 的参数量和 KV Cache 字节数。样例配置取自 Llama 3 论文里 8B 模型的结构表：
+
+| 项目 | 记号 | 值 |
+|---|---|---|
+| 层数 | L | 32 |
+| 隐藏维 | d | 4096 |
+| 查询头数 | h | 32 |
+| KV 头数 | h_kv | 8 |
+| 每头维数 | d_h = d / h | 128 |
+| FFN 中间维 | f | 14336 |
+| 词表大小 | V | 128256 |
+
+结构约定：
+
+- 注意力有 `wq`、`wk`、`wv`、`wo` 四个投影矩阵，没有偏置。
+- FFN 是 SwiGLU，有 `gate`、`up`、`down` 三个矩阵，没有偏置。
+- 每层两个 RMSNorm（注意力前、FFN 前各一个），所有层之后再一个。每个 RMSNorm 有 d 个参数。
+- 输入嵌入表和输出层是否共享权重，由 `tied` 决定。
+- 位置编码用 RoPE，没有参数。
+
+写两个函数：
+
+1. `param_count(layers, d, heads, kv_heads, ffn, vocab, tied)` 返回总参数量（整数）。
+2. `kv_cache_bytes(layers, kv_heads, head_dim, seq_len, batch, bytes_per)` 返回推理时 KV Cache 占的字节数。
+
+- 除 `tied`（布尔值）外，参数都必须是正整数。
+- `d` 不能被 `heads` 整除，或 `heads` 不能被 `kv_heads` 整除，也算非法。
+- 非法输入时 Python 抛 `ValueError`，TypeScript 抛 `Error`。
+
+## 样例
+
+| 调用 | 结果 |
+|---|---|
+| `param_count(32, 4096, 32, 8, 14336, 128256, False)` | `8030261248`（约 80.3 亿） |
+| `param_count(32, 4096, 32, 8, 14336, 128256, True)` | `7504924672`（嵌入和输出层共享） |
+| `kv_cache_bytes(32, 8, 128, 4096, 1, 2)` | `536870912`（512 MiB，即 0.5 GiB） |
+| `kv_cache_bytes(32, 32, 128, 4096, 1, 2)` | `2147483648`（2 GiB） |
+
+第三行是 batch = 1、序列长 4096、fp16（每个数 2 字节）。第四行把 KV 头数换成 32，相当于普通多头注意力。第三行若得到 2 GiB，是错用了查询头数 32，应该用 KV 头数 8。
+
+## 思路
+
+两题都是数数。KV Cache 从“一个 token 在一层存多少个数”乘起来；参数量按“一层有哪些矩阵”加起来，再加层外的部分。
+
+### KV Cache：先看一个 token 在一层里存什么
+
+生成文本时，每个新 token 都要和前面所有 token 的 K、V 做注意力。这些 K、V 算一次就存下来，存它们的地方叫 KV Cache。
+
+从最小单位算起，一个 token、一层要存：
+
+- 存 K 和 V 两份，这是第一个因子 2。
+- 每份的长度是 KV 头数 × 每头维数 = 8 × 128 = 1024。
+
+这里用的是 8 个 KV 头。32 个查询头分成 8 组，每组 4 个共用一对 K、V 头，叫**分组查询注意力**（GQA）。缓存里只有 K、V，所以只看 KV 头数。
+
+一个 token 一层就是 2 × 1024 = 2048 个数，fp16 每个 2 字节，共 4096 字节，也就是 4 KiB。
+
+<Figure caption="一个 token 在一层里缓存的内容：K、V 各 8 个头，每头 128 个数。普通多头注意力要存 32 个头，是这里的 4 倍。">
+  <Grid
+    corner="一个 token · 一层"
+    rowHeaders={['K', 'V']}
+    colHeaders={['头 0', '头 1', '头 2', '头 3', '头 4', '头 5', '头 6', '头 7']}
+    rows={[
+      [128, 128, 128, 128, 128, 128, 128, 128],
+      [128, 128, 128, 128, 128, 128, 128, 128],
+    ]}
+    tones={Object.fromEntries([0, 1].flatMap((r) => [0, 1, 2, 3, 4, 5, 6, 7].map((c) => [`${r},${c}`, r === 0 ? 'accent' : 'soft'])))}
+    cellWidth={52}
+  />
+</Figure>
+
+再逐级乘上去：
+
+- 乘 32 层：每个 token 4 KiB × 32 = 128 KiB，也就是 131072 字节。
+- 乘 4096 个 token：128 KiB × 4096 = 512 MiB。
+- batch = 1，不再乘。
+
+结果 536870912 字节。写成一个式子是 `2 × L × h_kv × d_h × 序列长 × batch × 每个数的字节数`。
+
+如果换成 32 个 KV 头，每 token 每层要存 2 × 32 × 128 = 8192 个数，总量变成 4 倍，即 2 GiB。GQA 省下的就是这 3/4。
+
+### 参数量：按层拆开数
+
+一层的参数分三块。
+
+| 矩阵 | 形状 | 参数量 |
+|---|---|---|
+| `wq` | 4096 × 4096 | 16,777,216 |
+| `wk` | 4096 × 1024 | 4,194,304 |
+| `wv` | 4096 × 1024 | 4,194,304 |
+| `wo` | 4096 × 4096 | 16,777,216 |
+| `gate`、`up`、`down` | 各 4096 × 14336 | 各 58,720,256 |
+| 两个 RMSNorm | 各 4096 | 8,192 |
+
+`wq` 给 32 个查询头各产生 128 维，输出 4096 维。`wk`、`wv` 只给 8 个 KV 头产生，输出 1024 维，只有 `wq` 的四分之一。`wo` 把 32 个头拼成的 4096 维投影回 4096 维。
+
+注意力四个矩阵合计 41,943,040，FFN 三个矩阵合计 176,160,768，加上两个 RMSNorm，一层是 218,112,000，约 2.18 亿。FFN 占了一层的 81%。
+
+32 层合计 6,979,584,000。层外还有三样：
+
+- 输入嵌入表：每个词一行，128256 × 4096 = 525,336,576。
+- 输出层：把 4096 维映射回词表，形状相同，也是 525,336,576。不共享时要算两次。
+- 最后一个 RMSNorm：4096。
+
+总数 6,979,584,000 + 2 × 525,336,576 + 4096 = 8,030,261,248，约 80.3 亿，“8B”指的就是它。共享嵌入时少算一份 525,336,576，得到 7,504,924,672。
+
+<Figure caption="上：一层 2.18 亿个参数，FFN 占八成，`wk`、`wv` 窄到几乎看不见。下：整个模型，FFN 占 70%，嵌入表和输出层合计约 13%，RMSNorm 共 266,240 个，图上看不出。">
+  <p class="viz-row-label">一层（共 32 层）</p>
+  <StackedBar
+    segments={[
+      { label: 'wq', value: 16777216, tone: 'accent' },
+      { label: 'wk', value: 4194304, tone: 'accent' },
+      { label: 'wv', value: 4194304, tone: 'accent' },
+      { label: 'wo', value: 16777216, tone: 'accent' },
+      { label: 'gate', value: 58720256 },
+      { label: 'up', value: 58720256 },
+      { label: 'down', value: 58720256 },
+      { label: 'norm', value: 8192 },
+    ]}
+    brackets={[
+      { from: 0, to: 3, label: '注意力 41,943,040' },
+      { from: 4, to: 6, label: 'FFN 176,160,768' },
+    ]}
+  />
+  <p class="viz-row-label" style="margin-top:1rem !important">整个模型</p>
+  <StackedBar
+    segments={[
+      { label: '嵌入', value: 525336576, tone: 'done' },
+      { label: '注意力 ×32', value: 1342177280, tone: 'accent' },
+      { label: 'FFN ×32', value: 5637144576 },
+      { label: 'norm', value: 266240 },
+      { label: '输出', value: 525336576, tone: 'done' },
+    ]}
+    brackets={[
+      { from: 0, to: 0, label: '5.25 亿' },
+      { from: 1, to: 1, label: '13.4 亿' },
+      { from: 2, to: 2, label: '56.4 亿' },
+      { from: 4, to: 4, label: '5.25 亿' },
+    ]}
+  />
+</Figure>
+
+## 代码
+
+<Solution slug="params-and-kv-cache" />
+
+两个版本的公式完全一样。Python 的整数没有上限；TypeScript 用的是双精度浮点数，整数在 `Number.MAX_SAFE_INTEGER`（约 9 × 10¹⁵）以内才精确。本题最大的数是 8B 模型的 8,030,261,248 和 70B 结构的 70,553,706,496，离上限还远，所以没有换成 `BigInt`。Python 版额外排除了 `True`、`False`，因为 `bool` 在 Python 里是 `int` 的子类，`True` 会被当成 1。
+
+## 复杂度
+
+两个函数都是 O(1)，只做固定次数的乘法和加法。式子里的字母：
+
+- 参数量 = L·(2d² + 2d·h_kv·d_h + 3d·f + 2d) + d + c·V·d。L 是层数，d 是隐藏维，h_kv 是 KV 头数，d_h 是每头维数，f 是 FFN 中间维，V 是词表大小；c 在不共享时取 2，共享时取 1。
+- KV Cache 字节数 = 2·L·h_kv·d_h·S·B·b。S 是序列长度，B 是 batch 大小，b 是每个数的字节数（fp16 为 2）。
+
+单位也要说清楚：2³⁰ 字节叫 GiB，10⁹ 字节叫 GB。536,870,912 字节是 0.5 GiB，但只有约 0.537 GB。
+
+## 自测：四个常见的错误结果
+
+<Aside type="caution" title="对照这几个错误结果">
+`kv_cache_bytes(32, 8, 128, 4096, 1, 2)` 应该是 536,870,912。如果你得到 268,435,456（一半），漏了 K、V 两份的因子 2；如果得到 2,147,483,648（四倍），用了查询头数 32。
+
+`param_count(32, 4096, 32, 8, 14336, 128256, False)` 应该是 8,030,261,248。如果你得到 8,835,567,616，你把 `wk`、`wv` 也算成了 4096 × 4096；如果得到 8,030,257,152，漏了最后一个 RMSNorm。
+</Aside>
+
+本页代码还测过共享嵌入、所有维度为 1 的最小配置、一个可以手算的一层小模型（680 个参数）、按 Llama 3 70B 结构表的配置（70,553,706,496），以及几种非法输入。
+
+## 延伸：显存只有 24 GiB，最长能缓存多少 token？
+
+显卡有 24 GiB 显存，先放下 fp16 的权重，剩下的全给 KV Cache，batch = 1，最多能缓存多少个 token？忽略激活值和框架开销。
+
+原来的两个函数照用，最后一步从乘变成除：
+
+- 权重：8,030,261,248 个参数 × 2 字节 = 16,060,522,496 字节，约 14.96 GiB。
+- 剩余：24 GiB 是 25,769,803,776 字节，减去权重后剩 9,709,281,280 字节，约 9.04 GiB。
+- 每个 token 在 32 层里共占 128 KiB = 131,072 字节。9,709,281,280 / 131,072 ≈ 74,075.9，向下取整是 **74,075 个 token**。
+
+这个数要在所有并发请求之间分，batch = 8 时每条序列最多 9,259 个 token。换成普通多头注意力，每 token 要 512 KiB，batch = 1 也只能放 18,518 个 token。GQA 让能缓存的长度变成 4 倍。
+
+反过来也能看出量级：batch = 8、序列长 8192 时 KV Cache 是 8 GiB，和 15 GiB 左右的权重已经在同一量级。
+
+## 参考
+
+- [The Llama 3 Herd of Models（arXiv 2407.21783）](https://arxiv.org/abs/2407.21783)：超参数表给出了 8B、70B 模型的层数、隐藏维、FFN 维度和头数。论文里词表写作约 128K，本题用的是发布的模型配置里的精确值 128,256
+- [GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints（arXiv 2305.13245）](https://arxiv.org/abs/2305.13245)
+- [GLU Variants Improve Transformer（arXiv 2002.05202）](https://arxiv.org/abs/2002.05202)，SwiGLU 的出处
+- 本题用到的组件：<ProblemLink slug="layernorm-rmsnorm" />、<ProblemLink slug="multi-head-attention" />、<ProblemLink slug="rope" />、<ProblemLink slug="lora-layer" />
